@@ -1,26 +1,5 @@
-"""
-prompts.py — Every system prompt lives here.
-
-KEY DECISIONS:
-  1. finance_guard.py is REMOVED. Scope control is done entirely through
-     prompt engineering in FINANCE_AGENT_SYSTEM_PROMPT. This is more robust
-     because the LLM already understands context — a keyword list or separate
-     classifier call is brittle and adds latency.
-
-  2. Temperature stays at 0.2 — low = fewer hallucinations for financial data.
-
-  3. Anti-hallucination rules are written in BOLD CAPS in the prompt — LLMs
-     pay more attention to uppercase imperative instructions.
-
-  4. The agent is given an explicit "how to refuse off-topic questions" script
-     so the refusal feels natural, not robotic.
-"""
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# MAIN AGENT SYSTEM PROMPT
-# This is the brain. It handles BOTH finance specialization AND scope guarding.
-# ─────────────────────────────────────────────────────────────────────────────
 
 FINANCE_AGENT_SYSTEM_PROMPT = """You are FinanceGPT, an expert AI advisor specialized exclusively in SaaS business finance.
 

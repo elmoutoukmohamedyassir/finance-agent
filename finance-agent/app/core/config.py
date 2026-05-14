@@ -1,15 +1,6 @@
-"""
-config.py — All configuration in one place, loaded from your .env file.
-
-Why this exists:
-  Instead of scattered os.getenv() calls throughout the code, everything
-  is defined here with types and defaults. If a required value is missing
-  the app crashes on startup with a clear error — not silently mid-request.
-"""
-
-from functools import lru_cache
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
-
+from functools import lru_cache
 
 class Settings(BaseSettings):
 
@@ -25,12 +16,8 @@ class Settings(BaseSettings):
     # ── RAG ───────────────────────────────────────────────────────────────
     chroma_persist_dir: str = "./data/chroma"
     docs_dir: str = "./docs"
-    # nomic-embed-text produces much richer embeddings than all-MiniLM-L6-v2.
-    # It understands domain language better → more relevant retrieval.
-    # Requires Ollama running locally: `ollama pull nomic-embed-text`
-    # To use sentence-transformers instead, set: all-MiniLM-L6-v2
     embedding_model: str = "nomic-embed-text"
-    embedding_backend: str = "ollama"   # "ollama" or "sentence-transformers"
+    embedding_backend: str = "ollama"
     ollama_base_url: str = "http://localhost:11434"
     rag_top_k: int = 5
 
@@ -38,12 +25,13 @@ class Settings(BaseSettings):
     session_ttl_minutes: int = 60
     max_sessions: int = 500
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",    # ← silently ignores APP_ENV and anything else not declared
+    }
 
 
 @lru_cache()
 def get_settings() -> Settings:
-    """Returns a cached singleton Settings instance."""
     return Settings()

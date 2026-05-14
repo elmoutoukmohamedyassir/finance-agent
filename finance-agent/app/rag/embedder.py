@@ -53,6 +53,9 @@ class OllamaEmbedder:
     """
     Embedding via Ollama running locally.
     Supports nomic-embed-text, mxbai-embed-large, and others.
+
+    FIX: Uses /api/embed (batch endpoint) instead of the removed /api/embeddings.
+    Ollama v0.1.26+ deprecated /api/embeddings in favour of /api/embed.
     """
 
     def __init__(self, model: str, base_url: str):
@@ -62,54 +65,116 @@ class OllamaEmbedder:
 
     def _test_connection(self):
         try:
-            resp = requests.get(f"{self.base_url}/api/tags", timeout=3)
-            if resp.status_code != 200:
-                raise ConnectionError(f"Ollama returned {resp.status_code}")
+            resp = requests.get(f"{self.base_url}/api/tags", timeout=5)
+            resp.raise_for_status()
             models = [m["name"] for m in resp.json().get("models", [])]
-            # Check if our model is available (name might have :latest suffix)
             model_base = self.model.split(":")[0]
             available = any(model_base in m for m in models)
             if not available:
-                logger.warning(
-                    f"Model '{self.model}' not found in Ollama. "
-                    f"Run: ollama pull {self.model}\n"
-                    f"Available: {models}"
+                # Hard stop — don't let it silently fail later during embed()
+                raise RuntimeError(
+                    f"\n\n  ✗ Model '{self.model}' is NOT available in Ollama.\n"
+                    f"  Available models: {models}\n\n"
+                    f"  Fix: run   ollama pull {self.model}\n"
+                    f"  Then re-run ingest.py.\n\n"
+                    f"  Or switch to sentence-transformers (no Ollama needed):\n"
+                    f"  Set in .env:  EMBEDDING_BACKEND=sentence-transformers\n"
+                    f"               EMBEDDING_MODEL=all-MiniLM-L6-v2\n"
                 )
+            logger.info(f"Ollama connection OK. Using model: {self.model}")
         except requests.exceptions.ConnectionError:
             raise RuntimeError(
-                f"Cannot connect to Ollama at {self.base_url}. "
-                "Make sure Ollama is running: ollama serve"
+                f"\n\n  ✗ Cannot connect to Ollama at {self.base_url}.\n"
+                f"  Make sure Ollama is running:  ollama serve\n\n"
+                f"  Or switch to sentence-transformers (no Ollama needed):\n"
+                f"  Set in .env:  EMBEDDING_BACKEND=sentence-transformers\n"
+                f"               EMBEDDING_MODEL=all-MiniLM-L6-v2\n"
             )
 
     def embed_one(self, text: str) -> list[float]:
         return self.embed([text])[0]
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        """Embed a batch of texts. Ollama doesn't support true batching so we loop."""
-        embeddings = []
-        for text in texts:
+    def embed(self, texts: list[str], batch_size: int = 32) -> list[list[float]]:
+        """
+        Embed texts in small batches to avoid Ollama timeouts on large documents.
+
+        Sending 2000+ chunks in one request times out after 120s.
+        Processing in batches of 32 keeps each request well under the timeout.
+
+        NOTE: /api/embeddings (old, single-text) was removed in Ollama v0.1.26+.
+              /api/embed (new, accepts a list) is the correct endpoint.
+        """
+        all_embeddings = []
+        total = len(texts)
+
+        for i in range(0, total, batch_size):
+            batch = texts[i : i + batch_size]
+            batch_num = i // batch_size + 1
+            total_batches = (total + batch_size - 1) // batch_size
+            logger.info(f"  Batch {batch_num}/{total_batches} ({len(batch)} chunks)...")
+
             try:
                 resp = requests.post(
-                    f"{self.base_url}/api/embeddings",
-                    json={"model": self.model, "prompt": text},
-                    timeout=30,
+                    f"{self.base_url}/api/embed",
+                    json={"model": self.model, "input": batch},
+                    timeout=120,
                 )
+                if not resp.ok:
+                    # Log the actual Ollama error body before raising
+                    logger.error(f"Ollama error body: {resp.text}")
                 resp.raise_for_status()
-                embeddings.append(resp.json()["embedding"])
+                all_embeddings.extend(resp.json()["embeddings"])
+            except requests.exceptions.HTTPError as e:
+                if resp.status_code == 400:
+                    # A chunk in this batch is bad (empty, too long, invalid chars).
+                    # Fall back to embedding one-by-one so we can isolate and skip it.
+                    logger.warning(
+                        f"Batch {batch_num} got 400 — falling back to one-by-one to find bad chunk..."
+                    )
+                    for j, text in enumerate(batch):
+                        if not text or not text.strip():
+                            logger.warning(f"  Skipping empty chunk at batch {batch_num} index {j}")
+                            all_embeddings.append([0.0] * 768)  # nomic-embed-text dim
+                            continue
+                        try:
+                            single_resp = requests.post(
+                                f"{self.base_url}/api/embed",
+                                json={"model": self.model, "input": [text]},
+                                timeout=30,
+                            )
+                            single_resp.raise_for_status()
+                            all_embeddings.extend(single_resp.json()["embeddings"])
+                        except Exception as single_e:
+                            logger.warning(
+                                f"  Skipping bad chunk at batch {batch_num} index {j}: {single_e}\n"
+                                f"  Chunk preview: {repr(text[:200])}"
+                            )
+                            all_embeddings.append([0.0] * 768)  # placeholder, won't be retrieved
+                else:
+                    logger.error(f"Ollama embedding failed on batch {batch_num}: {e}")
+                    raise RuntimeError(f"Embedding failed at batch {batch_num}/{total_batches}: {e}")
             except requests.exceptions.RequestException as e:
-                logger.error(f"Ollama embedding failed: {e}")
-                raise RuntimeError(f"Embedding failed: {e}")
-        return embeddings
+                logger.error(f"Ollama embedding failed on batch {batch_num}: {e}")
+                raise RuntimeError(f"Embedding failed at batch {batch_num}/{total_batches}: {e}")
+
+        return all_embeddings
 
 
 class SentenceTransformerEmbedder:
     """
     Fallback embedder using sentence-transformers.
     Works without Ollama. Weaker for domain-specific finance text.
+    Install: pip install sentence-transformers
     """
 
     def __init__(self, model: str):
-        from sentence_transformers import SentenceTransformer
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError:
+            raise RuntimeError(
+                "sentence-transformers is not installed.\n"
+                "Run: pip install sentence-transformers"
+            )
         logger.info(f"Loading sentence-transformers model: {model}")
         self._model = SentenceTransformer(model)
         logger.info("Sentence-transformers model loaded.")
@@ -129,10 +194,10 @@ _embedder_instance: Embedder | None = None
 def get_embedder() -> Embedder:
     """
     Returns the configured embedder (singleton — loaded once).
-    
+
     Reads EMBEDDING_BACKEND from .env:
       "ollama"                → OllamaEmbedder (nomic-embed-text, recommended)
-      "sentence-transformers" → SentenceTransformerEmbedder (fallback)
+      "sentence-transformers" → SentenceTransformerEmbedder (fallback, no Ollama needed)
     """
     global _embedder_instance
     if _embedder_instance is not None:
