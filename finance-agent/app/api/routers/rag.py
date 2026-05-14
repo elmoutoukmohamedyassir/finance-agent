@@ -1,14 +1,4 @@
-"""
-api/routers/rag.py — RAG document management endpoints.
-
-Endpoints:
-  POST /rag/ingest  — Trigger PDF ingestion from the docs/ folder
-  GET  /rag/search  — Search the knowledge base directly
-  GET  /rag/status  — Check how many documents are indexed
-"""
-
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
 from app.rag.ingestion import ingest_all_documents, get_chroma_collection
 from app.rag.retriever import retrieve_raw
 import logging
@@ -18,74 +8,55 @@ router = APIRouter(prefix="/rag", tags=["RAG / Knowledge Base"])
 
 
 @router.post("/ingest")
-def ingest_documents(force: bool = Query(default=False, description="Re-ingest already-indexed files")):
+def ingest(force: bool = Query(default=False, description="Re-ingest already indexed files")):
     """
-    Ingest all PDF files from the `docs/` directory into ChromaDB.
-
-    - Skips already-indexed files by default (set `force=true` to re-index)
-    - Safe to call multiple times (idempotent by default)
-    - Drop new PDFs into the `docs/` folder and call this endpoint
+    Ingest all PDFs from the docs/ folder into ChromaDB.
+    Safe to call multiple times — skips already-indexed files by default.
+    Add new PDFs to docs/ and call this endpoint to make them searchable.
     """
     try:
         results = ingest_all_documents(force=force)
         ingested = [r for r in results if r["status"] == "ingested"]
         skipped = [r for r in results if r["status"] == "skipped"]
         return {
-            "message": f"Ingestion complete. {len(ingested)} file(s) ingested, {len(skipped)} skipped.",
+            "message": f"{len(ingested)} file(s) ingested, {len(skipped)} skipped.",
             "details": results,
         }
     except Exception as e:
         logger.error(f"Ingestion error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/search")
-def search_knowledge_base(
-    query: str = Query(..., min_length=3, description="Search query"),
-    top_k: int = Query(default=4, ge=1, le=10),
+def search(
+    query: str = Query(..., min_length=3),
+    top_k: int = Query(default=5, ge=1, le=10),
 ):
     """
-    Search the finance knowledge base directly.
-    Returns relevant chunks with similarity scores.
-    Useful for debugging RAG quality.
+    Search the knowledge base and see similarity scores.
+    Use this to debug retrieval quality — are relevant chunks being found?
     """
     try:
         results = retrieve_raw(query=query, top_k=top_k)
-        return {
-            "query": query,
-            "results_found": len(results),
-            "results": results,
-        }
+        return {"query": query, "results_found": len(results), "results": results}
     except Exception as e:
-        logger.error(f"RAG search error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Search failed")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/status")
-def rag_status():
-    """
-    Returns the current state of the knowledge base.
-    """
+def status():
+    """Check how many documents and chunks are indexed."""
     try:
         collection = get_chroma_collection()
         count = collection.count()
-
-        # Get list of source documents
+        sources = []
         if count > 0:
-            results = collection.get(include=["metadatas"])
-            sources = list({m["source"] for m in results["metadatas"] if "source" in m})
-        else:
-            sources = []
-
+            res = collection.get(include=["metadatas"])
+            sources = list({m["source"] for m in res["metadatas"] if "source" in m})
         return {
             "status": "ready" if count > 0 else "empty",
             "total_chunks": count,
             "indexed_documents": sources,
-            "message": (
-                f"{count} chunks from {len(sources)} document(s) indexed."
-                if count > 0
-                else "No documents indexed yet. POST /rag/ingest to add documents."
-            ),
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}

@@ -1,20 +1,19 @@
 """
-tools/metrics_calculator.py — Pure Python SaaS financial metric calculations.
+tools/metrics_calculator.py — Pure Python SaaS financial math.
 
-WHY NO LLM HERE: This is the core anti-hallucination measure.
-All math is deterministic Python. The LLM only interprets results,
-never recalculates them.
+NO LLM INVOLVED HERE. Every number is deterministic.
+The LLM only receives and interprets these results — it never recalculates them.
+This is the single most important anti-hallucination measure in the whole system.
 
-Formulas used:
+Formulas:
   ARR = MRR × 12
   ARPU = MRR / customer_count
-  Retention = 1 - churn_rate
-  Customer Lifetime = 1 / churn_rate (in months, for monthly churn)
-  LTV = ARPU × Customer Lifetime × gross_margin_factor
-  LTV:CAC ratio = LTV / CAC
-  CAC Payback = CAC / ARPU
-  Profit = MRR - monthly_costs
-  Profit Margin = Profit / MRR × 100
+  Retention Rate = (1 - churn_rate/100) × 100
+  Customer Lifetime = 1 / (churn_rate/100) months
+  LTV = ARPU × Lifetime × (gross_margin/100)
+  LTV:CAC = LTV / CAC
+  CAC Payback = CAC / ARPU  (months)
+  Monthly Profit = MRR - monthly_costs
 """
 
 import logging
@@ -25,122 +24,110 @@ from app.schemas.session import BusinessState
 
 logger = logging.getLogger(__name__)
 
+# SaaS industry benchmarks used for health assessment
+LTV_CAC_HEALTHY = 3.0
+LTV_CAC_CRITICAL = 1.0
+CHURN_HEALTHY = 2.0
+CHURN_WARNING = 5.0
+CHURN_CRITICAL = 10.0
+PAYBACK_HEALTHY = 12
+PAYBACK_WARNING = 18
+DEFAULT_GROSS_MARGIN = 75.0  # typical SaaS gross margin
+
 
 def calculate_metrics(inputs: MetricsInput) -> MetricsOutput:
     """
-    Calculate all possible SaaS metrics from provided inputs.
-    
-    Returns MetricsOutput with None for metrics that cannot be calculated.
-    Never raises — missing data results in None, not an error.
+    Calculate all computable SaaS metrics from provided inputs.
+    Returns None for metrics that cannot be computed.
     """
-    # Normalize: if both MRR and ARR provided, MRR takes precedence
+    # ── Normalize base values ─────────────────────────────────────────────
     mrr = inputs.mrr
     arr = inputs.arr
-    customer_count = inputs.customer_count
+    customers = inputs.customer_count
     arpu = inputs.arpu
-    churn_rate_pct = inputs.churn_rate       # as percentage (e.g. 3.5 for 3.5%)
+    churn_pct = inputs.churn_rate
     cac = inputs.cac
-    monthly_costs = inputs.monthly_costs
-    marketing_budget = inputs.marketing_budget
-    new_customers = inputs.new_customers_per_month
-    gross_margin_pct = inputs.gross_margin or 80.0  # default 80% for SaaS
+    costs = inputs.monthly_costs
+    mkt_budget = inputs.marketing_budget
+    new_custs = inputs.new_customers_per_month
+    gm_pct = inputs.gross_margin or DEFAULT_GROSS_MARGIN
 
-    # ── Derive missing base values ─────────────────────────────────────────
-    # MRR ↔ ARR
+    # Derive MRR ↔ ARR
     if mrr and not arr:
-        arr = mrr * 12
+        arr = round(mrr * 12, 2)
     elif arr and not mrr:
-        mrr = arr / 12
+        mrr = round(arr / 12, 2)
 
-    # MRR ↔ ARPU ↔ customer_count (any two → third)
-    if mrr and customer_count and customer_count > 0 and not arpu:
-        arpu = mrr / customer_count
-    elif mrr and arpu and arpu > 0 and not customer_count:
-        customer_count = int(mrr / arpu)
-    elif arpu and customer_count and not mrr:
-        mrr = arpu * customer_count
-        arr = mrr * 12
+    # Derive any of MRR / ARPU / customer_count from the other two
+    if mrr and customers and customers > 0 and not arpu:
+        arpu = round(mrr / customers, 2)
+    elif mrr and arpu and arpu > 0 and not customers:
+        customers = int(mrr / arpu)
+    elif arpu and customers and not mrr:
+        mrr = round(arpu * customers, 2)
+        arr = round(mrr * 12, 2)
 
-    # CAC from marketing budget + new customers
-    if not cac and marketing_budget and new_customers and new_customers > 0:
-        cac = marketing_budget / new_customers
+    # Derive CAC from marketing spend
+    if not cac and mkt_budget and new_custs and new_custs > 0:
+        cac = round(mkt_budget / new_custs, 2)
 
-    # ── Retention and churn ────────────────────────────────────────────────
-    churn_rate = None
+    # ── Churn & retention ─────────────────────────────────────────────────
     retention_rate = None
-    customer_lifetime_months = None
-
-    if churn_rate_pct is not None:
-        churn_rate = churn_rate_pct
-        churn_decimal = churn_rate_pct / 100.0
+    lifetime_months = None
+    if churn_pct is not None:
+        churn_decimal = churn_pct / 100
         retention_rate = round((1 - churn_decimal) * 100, 2)
-
         if churn_decimal > 0:
-            customer_lifetime_months = round(1 / churn_decimal, 1)
-        else:
-            customer_lifetime_months = None  # infinite lifetime, don't display
+            lifetime_months = round(1 / churn_decimal, 1)
 
     # ── LTV ───────────────────────────────────────────────────────────────
     ltv = None
-    if arpu and customer_lifetime_months:
-        gross_margin_factor = gross_margin_pct / 100.0
-        ltv = round(arpu * customer_lifetime_months * gross_margin_factor, 2)
+    if arpu and lifetime_months:
+        ltv = round(arpu * lifetime_months * (gm_pct / 100), 2)
 
-    # ── LTV:CAC Ratio ──────────────────────────────────────────────────────
+    # ── Unit economics ────────────────────────────────────────────────────
     ltv_cac_ratio = None
+    payback = None
     if ltv and cac and cac > 0:
         ltv_cac_ratio = round(ltv / cac, 2)
-
-    # ── CAC Payback Period ─────────────────────────────────────────────────
-    cac_payback_months = None
     if cac and arpu and arpu > 0:
-        cac_payback_months = round(cac / arpu, 1)
+        payback = round(cac / arpu, 1)
 
-    # ── Profitability ──────────────────────────────────────────────────────
+    # ── Profitability ─────────────────────────────────────────────────────
     monthly_profit = None
     profit_margin = None
-    burn_rate = None
-
-    if mrr and monthly_costs is not None:
-        monthly_profit = round(mrr - monthly_costs, 2)
-        if mrr > 0:
-            profit_margin = round((monthly_profit / mrr) * 100, 1)
+    burn = None
+    if mrr is not None and costs is not None:
+        monthly_profit = round(mrr - costs, 2)
+        profit_margin = round((monthly_profit / mrr * 100), 1) if mrr > 0 else None
         if monthly_profit < 0:
-            burn_rate = abs(monthly_profit)
+            burn = round(abs(monthly_profit), 2)
 
-    # ── Health Assessment ──────────────────────────────────────────────────
-    warnings, health_score = _assess_health(
-        ltv_cac_ratio=ltv_cac_ratio,
-        churn_rate=churn_rate,
-        cac_payback_months=cac_payback_months,
-        profit_margin=profit_margin,
-    )
+    # ── Health assessment ─────────────────────────────────────────────────
+    warnings, health_score = _assess_health(ltv_cac_ratio, churn_pct, payback, profit_margin)
 
     return MetricsOutput(
         mrr=round(mrr, 2) if mrr else None,
         arr=round(arr, 2) if arr else None,
         arpu=round(arpu, 2) if arpu else None,
-        churn_rate=churn_rate,
+        churn_rate=churn_pct,
         retention_rate=retention_rate,
-        customer_lifetime_months=customer_lifetime_months,
+        customer_lifetime_months=lifetime_months,
         ltv=ltv,
         cac=round(cac, 2) if cac else None,
         ltv_cac_ratio=ltv_cac_ratio,
-        cac_payback_months=cac_payback_months,
+        cac_payback_months=payback,
         monthly_profit=monthly_profit,
         profit_margin=profit_margin,
-        burn_rate=burn_rate,
+        burn_rate=burn,
         health_score=health_score,
         warnings=warnings,
     )
 
 
 def calculate_from_business_state(state: BusinessState) -> MetricsOutput:
-    """
-    Convenience function: calculate metrics directly from a session's BusinessState.
-    Converts BusinessState → MetricsInput → MetricsOutput.
-    """
-    inputs = MetricsInput(
+    """Convenience: feed a BusinessState directly into the calculator."""
+    return calculate_metrics(MetricsInput(
         mrr=state.mrr,
         arr=state.arr,
         customer_count=state.customer_count,
@@ -150,98 +137,84 @@ def calculate_from_business_state(state: BusinessState) -> MetricsOutput:
         monthly_costs=state.monthly_costs,
         marketing_budget=state.marketing_budget,
         gross_margin=state.gross_margin,
-    )
-    return calculate_metrics(inputs)
+    ))
 
 
 def _assess_health(
-    ltv_cac_ratio: Optional[float],
-    churn_rate: Optional[float],
-    cac_payback_months: Optional[float],
+    ltv_cac: Optional[float],
+    churn_pct: Optional[float],
+    payback: Optional[float],
     profit_margin: Optional[float],
 ) -> tuple[list[str], str]:
     """
-    Produces warnings and an overall health score based on industry benchmarks.
-
-    SaaS benchmarks used:
-      LTV:CAC  ≥ 3x  → healthy (SaaS standard)
-      Churn    ≤ 5%  → acceptable monthly churn for SMB SaaS
-      Payback  ≤ 12 months → acceptable for SMB
-      Profit   > 0   → profitable
+    Benchmarks metrics against SaaS industry standards.
+    Returns (warnings_list, health_score_string).
     """
     warnings = []
-    score_flags = []  # "good", "warning", "critical"
+    flags = []
 
-    # LTV:CAC
-    if ltv_cac_ratio is not None:
-        if ltv_cac_ratio < 1:
+    if ltv_cac is not None:
+        if ltv_cac < LTV_CAC_CRITICAL:
             warnings.append(
-                f"⚠️ LTV:CAC ratio is {ltv_cac_ratio}x — you're spending more to acquire "
-                f"customers than you earn from them. Business model needs rethinking."
+                f"LTV:CAC of {ltv_cac}x is critical — you lose money on every customer. "
+                "Rethink pricing or drastically reduce acquisition costs."
             )
-            score_flags.append("critical")
-        elif ltv_cac_ratio < 3:
+            flags.append("critical")
+        elif ltv_cac < LTV_CAC_HEALTHY:
             warnings.append(
-                f"⚠️ LTV:CAC ratio is {ltv_cac_ratio}x — below the healthy 3x benchmark. "
-                f"Consider reducing CAC or improving retention."
+                f"LTV:CAC of {ltv_cac}x is below the 3x benchmark. "
+                "Healthy SaaS businesses target 3x or higher."
             )
-            score_flags.append("warning")
+            flags.append("warning")
         else:
-            score_flags.append("good")
+            flags.append("good")
 
-    # Churn
-    if churn_rate is not None:
-        if churn_rate > 10:
+    if churn_pct is not None:
+        if churn_pct > CHURN_CRITICAL:
             warnings.append(
-                f"🔴 Monthly churn of {churn_rate}% is very high. "
-                f"Focus urgently on retention — this will kill growth."
+                f"Monthly churn of {churn_pct}% is very high. "
+                "At this rate customers are leaving faster than you can acquire them. Retention is your #1 priority."
             )
-            score_flags.append("critical")
-        elif churn_rate > 5:
+            flags.append("critical")
+        elif churn_pct > CHURN_WARNING:
             warnings.append(
-                f"⚠️ Monthly churn of {churn_rate}% is above the 5% healthy benchmark. "
-                f"Investigate why customers are leaving."
+                f"Monthly churn of {churn_pct}% exceeds the 5% warning threshold. "
+                "Investigate why customers leave and implement a retention program."
             )
-            score_flags.append("warning")
+            flags.append("warning")
         else:
-            score_flags.append("good")
+            flags.append("good")
 
-    # Payback period
-    if cac_payback_months is not None:
-        if cac_payback_months > 18:
+    if payback is not None:
+        if payback > PAYBACK_WARNING:
             warnings.append(
-                f"⚠️ CAC payback of {cac_payback_months} months is long. "
-                f"You'll need significant capital to sustain growth."
+                f"CAC payback of {payback} months is long — you need significant capital to scale. "
+                "Aim for under 12 months."
             )
-            score_flags.append("warning")
-        elif cac_payback_months <= 12:
-            score_flags.append("good")
+            flags.append("warning")
+        elif payback <= PAYBACK_HEALTHY:
+            flags.append("good")
 
-    # Profitability
     if profit_margin is not None:
         if profit_margin < 0:
             warnings.append(
-                f"🔴 Currently unprofitable at {profit_margin}% margin. "
-                f"Ensure your runway covers the path to profitability."
+                f"Unprofitable at {profit_margin}% margin. "
+                "Make sure your runway covers the time needed to reach break-even."
             )
-            score_flags.append("critical")
+            flags.append("critical")
         elif profit_margin < 10:
-            warnings.append(
-                f"⚠️ Profit margin of {profit_margin}% is thin. "
-                f"Look for ways to reduce costs or increase pricing."
-            )
-            score_flags.append("warning")
+            warnings.append(f"Thin profit margin of {profit_margin}%. Consider cost reduction or price increases.")
+            flags.append("warning")
         else:
-            score_flags.append("good")
+            flags.append("good")
 
-    # Overall health
-    if "critical" in score_flags:
-        health_score = "Critical"
-    elif "warning" in score_flags:
-        health_score = "Warning"
-    elif score_flags:
-        health_score = "Healthy"
+    if "critical" in flags:
+        score = "Critical ⚠️"
+    elif "warning" in flags:
+        score = "Needs Attention ⚡"
+    elif flags:
+        score = "Healthy ✅"
     else:
-        health_score = "Insufficient data"
+        score = "Insufficient data"
 
-    return warnings, health_score
+    return warnings, score

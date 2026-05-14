@@ -1,10 +1,5 @@
-"""
-api/routers/scenario.py — Financial scenario simulation endpoint.
-"""
-
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from typing import Optional
 from app.tools.scenario_engine import build_standard_scenarios
 import logging
 
@@ -32,18 +27,11 @@ class ScenarioRequest(BaseModel):
 
 
 @router.post("/analyze")
-def analyze_scenarios(request: ScenarioRequest):
+def analyze(request: ScenarioRequest):
     """
-    Run pessimistic, realistic, and optimistic 12-month projections.
-
-    Returns monthly snapshots for each scenario including:
-    - Customer count
-    - MRR
-    - Monthly costs
-    - Profit/loss
-    - Cumulative cash position
-
-    **All calculations are pure Python math — no LLM involved.**
+    Run pessimistic / realistic / optimistic 12-month projections.
+    Each scenario shows monthly MRR, customers, costs, profit, and cash.
+    Pure Python math — no LLM.
     """
     try:
         scenarios = build_standard_scenarios(

@@ -1,40 +1,28 @@
 """
-agents/finance_agent.py — Main orchestrator for the finance agent workflow.
+agents/finance_agent.py — Main orchestrator.
 
-IMPROVEMENTS over the original:
-  1. Fully conversational: progressively collects info, then analyzes
-  2. Grounded analysis: LLM interprets pre-calculated metrics, never recalculates
-  3. RAG context injected when relevant (not always — reduces noise)
-  4. Session-based state: each conversation persists across messages
-  5. Clear agent modes: gathering_info | analyzing | answering | off_topic
+SCOPE CONTROL: finance_guard.py is REMOVED.
+Scope is enforced through FINANCE_AGENT_SYSTEM_PROMPT which contains explicit
+instructions on how to handle off-topic questions. This is simpler, cheaper
+(no extra API call), and more context-aware (the LLM understands the full
+conversation, a keyword filter does not).
 
-WORKFLOW:
-  Message received
-    → finance_guard: is it finance-related?
-      → No: return polite rejection
-      → Yes:
-          → extract any business info from the message
-          → update session state
-          → do we have enough info to analyze?
-            → No: ask next question (question_agent)
-            → Yes: run full analysis
-                → calculate metrics (pure math)
-                → build scenarios (pure math)
-                → retrieve RAG context (if relevant)
-                → LLM interprets results (grounded prompt)
-                → return structured response
+FLOW:
+  1. Load/create session
+  2. Extract any business data from message (LLM extraction)
+  3. If not enough data → ask next question
+  4. If enough data → calculate metrics (pure Python) → retrieve RAG →
+     send pre-calculated data to LLM for interpretation
 """
 
 import logging
 
 from app.core.groq_client import groq_client
 from app.core.prompts import (
-    build_metrics_prompt,
-    build_rag_system_prompt,
-    build_scenario_prompt,
     FINANCE_AGENT_SYSTEM_PROMPT,
+    build_analysis_system_prompt,
+    build_analysis_user_message,
 )
-from app.tools.finance_guard import is_finance_related, get_rejection_message
 from app.tools.metrics_calculator import calculate_from_business_state
 from app.tools.scenario_engine import build_standard_scenarios, format_scenarios_for_prompt
 from app.agents.question_agent import extract_business_info, get_next_question, should_analyze
@@ -51,226 +39,152 @@ logger = logging.getLogger(__name__)
 
 
 def handle_chat(session_id: str | None, user_message: str) -> ChatResponse:
-    """
-    Main entry point for the chat endpoint.
-
-    Takes a user message + optional session ID, returns a structured ChatResponse.
-    All state management is handled here.
-    """
-    # Load or create conversation session
+    """Entry point: takes a message, returns a structured response."""
     session = get_or_create_session(session_id)
 
-    # Step 1: Finance scope check
-    # Only check on first message — subsequent messages are assumed in-context
-    is_first_message = len(session.conversation_history) == 0
-    if is_first_message and not is_finance_related(user_message):
-        # Add to history so we have context
-        session.add_message("user", user_message)
-        session.add_message("assistant", get_rejection_message())
-        save_session(session)
-        return ChatResponse(
-            session_id=session.session_id,
-            message=get_rejection_message(),
-            agent_mode="off_topic",
-        )
+    # Extract any structured data from this message
+    extracted = extract_business_info(user_message)
+    if extracted:
+        update_business_state(session, extracted)
 
-    # Step 2: Extract any business data from the user's message
-    extracted_info = extract_business_info(user_message)
-    if extracted_info:
-        logger.info(f"Extracted from message: {extracted_info}")
-        update_business_state(session, extracted_info)
-
-    # Step 3: Add user message to conversation history
     session.add_message("user", user_message)
 
-    # Step 4: Decide what to do next
     state = session.business_state
 
     if not should_analyze(state):
-        # Not enough info yet — ask the next question
         response = _ask_next_question(session)
     else:
-        # We have enough data — run full analysis
-        response = _run_full_analysis(session)
+        response = _run_analysis(session)
 
-    # Step 5: Add response to history and persist
     session.add_message("assistant", response.message)
     save_session(session)
 
-    # Attach current business state to response (for UI progress display)
     response.session_id = session.session_id
-    response.business_state = {
-        k: v for k, v in state.model_dump().items() if v is not None
-    }
-
+    response.business_state = state.filled_fields()
     return response
 
 
 def _ask_next_question(session: ConversationSession) -> ChatResponse:
-    """
-    Determines and returns the next question to collect missing business info.
-    """
+    """Asks the next missing question. On first turn, adds a welcome message."""
     question = get_next_question(
         state=session.business_state,
         asked_questions=session.questions_asked,
     )
 
-    if question:
-        session.questions_asked.append(question)
+    if not question:
+        # Fallback: we somehow have no more questions but can't analyze yet
+        return _general_answer(session)
 
-        # For the very first message, prepend a welcome if we haven't yet
-        is_first_response = len(session.conversation_history) == 1  # just the user msg
-        if is_first_response:
-            message = (
-                "Welcome! I'm your AI SaaS Finance Advisor. I'll help you analyze "
-                "the financial health and viability of your business.\n\n"
-                f"Let's start: {question}"
-            )
-        else:
-            message = question
+    session.questions_asked.append(question)
 
-        return ChatResponse(
-            session_id=session.session_id,
-            message=message,
-            agent_mode="gathering_info",
+    is_first_turn = len(session.conversation_history) == 1
+    if is_first_turn:
+        message = (
+            "Hi! I'm your AI SaaS Finance Advisor. I help founders evaluate "
+            "their business financially before and during launch.\n\n"
+            f"Let's get started — {question}"
         )
     else:
-        # Somehow we got here without enough info and without a question
-        # Fall back to general finance chat
-        return _general_finance_answer(session)
+        message = question
+
+    return ChatResponse(
+        session_id=session.session_id,
+        message=message,
+        agent_mode="gathering_info",
+    )
 
 
-def _run_full_analysis(session: ConversationSession) -> ChatResponse:
+def _run_analysis(session: ConversationSession) -> ChatResponse:
     """
-    Runs the complete financial analysis workflow:
-    1. Calculate metrics (pure math, no LLM)
-    2. Build scenarios (pure math, no LLM)
-    3. Retrieve RAG context (semantic search)
-    4. LLM interprets pre-calculated results (grounded)
+    Full analysis:
+    1. Pure Python metric calculation (no LLM → no hallucinations)
+    2. Pure Python scenario projection
+    3. RAG retrieval (relevant finance document chunks)
+    4. LLM interprets pre-calculated data (grounded, not free-form)
     """
     state = session.business_state
 
-    # Step A: Calculate metrics — pure Python, no hallucinations
+    # Step 1: Calculate metrics — pure Python
     metrics = calculate_from_business_state(state)
     metrics_dict = {k: v for k, v in metrics.model_dump().items() if v is not None}
 
-    # Step B: Build financial scenarios — pure Python
-    scenarios = None
-    if state.mrr and state.customer_count and state.monthly_costs is not None:
-        scenarios_list = build_standard_scenarios(
-            starting_customers=state.customer_count,
-            monthly_price=state.arpu or (state.mrr / state.customer_count),
-            monthly_costs=state.monthly_costs,
-            starting_cash=50000,  # Default assumption if not provided
-            months=12,
-        )
-        scenarios = format_scenarios_for_prompt(scenarios_list)
+    # Step 2: Scenarios — pure Python
+    scenarios_str = ""
+    if state.customer_count and state.monthly_costs is not None:
+        price = state.arpu or (state.mrr / state.customer_count if state.mrr and state.customer_count else 0)
+        if price > 0:
+            scenarios = build_standard_scenarios(
+                starting_customers=state.customer_count,
+                monthly_price=price,
+                monthly_costs=state.monthly_costs,
+                starting_cash=50000,
+                months=12,
+            )
+            scenarios_str = format_scenarios_for_prompt(scenarios)
 
-    # Step C: Retrieve RAG context for the query
+    # Step 3: RAG retrieval — finance documents
     rag_query = _build_rag_query(state, metrics_dict)
     rag_context = retrieve_context(rag_query)
 
-    # Step D: Build grounded prompt and call LLM
-    business_context_dict = {k: v for k, v in state.model_dump().items() if v is not None}
+    # Step 4: Build prompt and call LLM
+    system_prompt = build_analysis_system_prompt(rag_context=rag_context)
+    user_msg = build_analysis_user_message(
+        state_dict=state.filled_fields(),
+        metrics_dict=metrics_dict,
+        scenarios_str=scenarios_str,
+    )
 
-    if rag_context:
-        system_prompt = build_rag_system_prompt(rag_context)
-    else:
-        system_prompt = build_metrics_prompt(metrics_dict, business_context_dict)
-
-    # Build the user message for the LLM with all calculated data pre-loaded
-    analysis_request = _build_analysis_request(state, metrics_dict, scenarios)
-
-    llm_response = groq_client.chat(
+    response_text = groq_client.chat(
         system_prompt=system_prompt,
-        user_message=analysis_request,
-        conversation_history=session.conversation_history[-6:],  # recent context
-        temperature=0.3,
-        max_tokens=1500,
+        user_message=user_msg,
+        conversation_history=session.conversation_history[-6:],
+        temperature=0.2,
+        max_tokens=1800,
     )
 
     return ChatResponse(
         session_id=session.session_id,
-        message=llm_response,
+        message=response_text,
         agent_mode="analyzing",
         metrics_calculated=metrics_dict,
     )
 
 
-def _general_finance_answer(session: ConversationSession) -> ChatResponse:
+def _general_answer(session: ConversationSession) -> ChatResponse:
     """
-    Falls back to a general finance Q&A mode when not running full analysis.
-    Used for follow-up questions after analysis, or exploratory conversations.
+    General finance Q&A — used for follow-up questions after analysis,
+    or exploratory finance questions not requiring full business data.
+    
+    The system prompt handles off-topic rejection through prompt engineering.
     """
-    rag_context = retrieve_context(session.conversation_history[-1]["content"])
+    last_message = session.conversation_history[-1]["content"]
+    rag_context = retrieve_context(last_message)
+    system_prompt = build_analysis_system_prompt(rag_context=rag_context)
 
-    if rag_context:
-        system_prompt = build_rag_system_prompt(rag_context)
-    else:
-        system_prompt = FINANCE_AGENT_SYSTEM_PROMPT
-
-    response = groq_client.chat(
+    response_text = groq_client.chat(
         system_prompt=system_prompt,
-        user_message=session.conversation_history[-1]["content"],
-        conversation_history=session.conversation_history[-8:],
-        temperature=0.4,
+        user_message=last_message,
+        conversation_history=session.conversation_history[-10:],
+        temperature=0.3,
         max_tokens=1000,
     )
 
     return ChatResponse(
         session_id=session.session_id,
-        message=response,
+        message=response_text,
         agent_mode="answering",
     )
 
 
 def _build_rag_query(state, metrics_dict: dict) -> str:
-    """
-    Builds a targeted RAG search query from business context.
-    More specific queries return more relevant chunks.
-    """
-    parts = ["SaaS finance metrics analysis"]
-
+    """Build a targeted semantic search query based on the business situation."""
+    parts = ["SaaS financial analysis startup metrics"]
     if state.churn_rate and state.churn_rate > 5:
-        parts.append("customer retention churn reduction strategies")
+        parts.append("customer churn retention strategies")
     if metrics_dict.get("ltv_cac_ratio") and metrics_dict["ltv_cac_ratio"] < 3:
-        parts.append("LTV CAC ratio improvement customer acquisition cost")
+        parts.append("LTV CAC ratio improvement acquisition cost")
     if metrics_dict.get("burn_rate"):
-        parts.append("runway burn rate cash management startup")
+        parts.append("burn rate runway cash management")
     if state.business_model:
-        parts.append(f"{state.business_model} SaaS business model")
-
+        parts.append(f"{state.business_model} SaaS pricing model")
     return " ".join(parts)
-
-
-def _build_analysis_request(state, metrics_dict: dict, scenarios: str | None) -> str:
-    """
-    Builds the analysis request message to send to the LLM.
-    This is NOT the system prompt — it's the "user turn" content
-    that describes what analysis is needed.
-    """
-    lines = [
-        f"Please analyze the financial health of this SaaS business: {state.business_name or 'unnamed'}",
-        "",
-        "CALCULATED METRICS (do not recalculate):",
-    ]
-    for k, v in metrics_dict.items():
-        if k not in ("health_score", "warnings"):
-            lines.append(f"  {k}: {v}")
-
-    if metrics_dict.get("warnings"):
-        lines.append("\nFLAGGED CONCERNS:")
-        for w in metrics_dict["warnings"]:
-            lines.append(f"  {w}")
-
-    if scenarios:
-        lines.append(f"\n12-MONTH SCENARIO PROJECTIONS:\n{scenarios}")
-
-    lines.append(
-        "\nPlease provide:\n"
-        "1. A clear financial health summary\n"
-        "2. The 2-3 most important things to fix or focus on\n"
-        "3. One concrete next step recommendation"
-    )
-
-    return "\n".join(lines)

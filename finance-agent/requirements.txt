@@ -1,22 +1,23 @@
-# ── Web Framework ─────────────────────────────────────────
+# Web framework
 fastapi==0.115.0
 uvicorn[standard]==0.30.0
-python-multipart==0.0.9      # for file uploads (future)
 
-# ── Configuration ──────────────────────────────────────────
+# Config
 pydantic==2.7.0
-pydantic-settings==2.3.0    # reads .env files into Settings
+pydantic-settings==2.3.0
 python-dotenv==1.0.1
 
-# ── LLM — Groq ────────────────────────────────────────────
-groq==0.9.0                 # official Groq Python SDK
+# LLM
+groq==0.9.0
 
-# ── RAG — Vector Store ────────────────────────────────────
+# RAG - vector store
 chromadb==0.5.3
-sentence-transformers==3.0.1
 
-# ── RAG — PDF Parsing ─────────────────────────────────────
+# RAG - PDF parsing
 pypdf==4.3.1
 
-# ── Utilities ─────────────────────────────────────────────
-httpx==0.27.0               # async HTTP (used by groq SDK internally)
+# RAG - embeddings (fallback if not using Ollama)
+sentence-transformers==3.0.1
+
+# HTTP (used by Ollama embedder)
+requests==2.32.3

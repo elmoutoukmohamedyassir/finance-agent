@@ -1,28 +1,10 @@
 """
-tools/scenario_engine.py — SaaS financial scenario projections.
+tools/scenario_engine.py — Financial projection engine. Pure Python, no LLM.
 
-IMPROVEMENTS over the original scenario_analysis.py:
-  1. Includes monthly costs in projections (original ignored costs entirely)
-  2. Tracks profit/loss per month, not just MRR
-  3. Calculates runway per scenario (critical for founders)
-  4. Supports custom scenarios, not just fixed pessimistic/realistic/optimistic
-  5. Returns structured dicts ready for LLM interpretation
-
-KEY DESIGN: All math is deterministic Python. No LLM involved here.
-The LLM only interprets these pre-calculated numbers.
+Improvement over original: tracks costs, profit, and cash per month —
+not just MRR. A scenario that shows MRR growth but negative cash is
+a very different story than the original code revealed.
 """
-
-from dataclasses import dataclass, field
-from typing import Optional
-
-
-@dataclass
-class ScenarioConfig:
-    """Defines a single scenario's growth + churn assumptions."""
-    name: str
-    monthly_growth_rate_pct: float   # e.g. 10.0 for 10% monthly growth
-    monthly_churn_rate_pct: float    # e.g. 5.0 for 5% monthly churn
-    cost_growth_rate_pct: float = 2.0  # costs grow slightly each month
 
 
 def project_scenario(
@@ -30,27 +12,21 @@ def project_scenario(
     monthly_price: float,
     monthly_costs: float,
     starting_cash: float,
-    config: ScenarioConfig,
+    monthly_growth_pct: float,
+    monthly_churn_pct: float,
     months: int = 12,
+    cost_growth_pct: float = 1.5,
 ) -> dict:
-    """
-    Projects a single scenario over N months.
-
-    Returns a dict with:
-      - name: scenario label
-      - assumptions: the growth/churn rates used
-      - months: list of monthly snapshots
-      - summary: final month state + runway info
-    """
-    growth_rate = config.monthly_growth_rate_pct / 100
-    churn_rate = config.monthly_churn_rate_pct / 100
-    cost_growth = config.cost_growth_rate_pct / 100
+    """Project a single scenario over N months."""
+    growth = monthly_growth_pct / 100
+    churn = monthly_churn_pct / 100
+    cost_growth = cost_growth_pct / 100
 
     customers = float(starting_customers)
     costs = float(monthly_costs)
     cash = float(starting_cash)
-    monthly_snapshots = []
-    runway_month = None  # Month when cash runs out
+    snapshots = []
+    runway_month = None
 
     for month in range(1, months + 1):
         mrr = round(customers * monthly_price, 2)
@@ -58,9 +34,9 @@ def project_scenario(
         cash = round(cash + profit, 2)
 
         if cash < 0 and runway_month is None:
-            runway_month = month - 1  # Ran out before this month
+            runway_month = month - 1
 
-        monthly_snapshots.append({
+        snapshots.append({
             "month": month,
             "customers": int(round(customers)),
             "mrr": mrr,
@@ -69,35 +45,24 @@ def project_scenario(
             "cash": cash,
         })
 
-        # Apply growth and churn for next month
-        gained = customers * growth_rate
-        lost = customers * churn_rate
-        customers = max(0, customers + gained - lost)
-        costs = costs * (1 + cost_growth)
+        gained = customers * growth
+        lost = customers * churn
+        customers = max(0.0, customers + gained - lost)
+        costs *= (1 + cost_growth)
 
-    # Summary stats
-    final = monthly_snapshots[-1]
+    final = snapshots[-1]
     initial_mrr = starting_customers * monthly_price
-    final_mrr = final["mrr"]
-    mrr_growth_pct = round(((final_mrr - initial_mrr) / initial_mrr * 100), 1) if initial_mrr > 0 else 0
-
-    summary = {
-        "final_customers": final["customers"],
-        "final_mrr": final_mrr,
-        "final_cash": final["cash"],
-        "mrr_growth_over_period_pct": mrr_growth_pct,
-        "runway_months": runway_month if runway_month is not None else f">{months}",
-        "profitable_in_month_1": monthly_snapshots[0]["profit"] > 0,
-    }
+    mrr_growth = round((final["mrr"] - initial_mrr) / initial_mrr * 100, 1) if initial_mrr > 0 else 0
 
     return {
-        "name": config.name,
-        "assumptions": {
-            "monthly_growth_rate_pct": config.monthly_growth_rate_pct,
-            "monthly_churn_rate_pct": config.monthly_churn_rate_pct,
-        },
-        "monthly_projections": monthly_snapshots,
-        "summary": summary,
+        "monthly_projections": snapshots,
+        "summary": {
+            "final_mrr": final["mrr"],
+            "final_customers": final["customers"],
+            "final_cash": final["cash"],
+            "mrr_growth_pct": mrr_growth,
+            "runway": runway_month if runway_month is not None else f">{months} months",
+        }
     }
 
 
@@ -105,60 +70,43 @@ def build_standard_scenarios(
     starting_customers: int,
     monthly_price: float,
     monthly_costs: float,
-    starting_cash: float,
+    starting_cash: float = 50000,
     months: int = 12,
 ) -> list[dict]:
-    """
-    Builds the standard 3-scenario analysis: pessimistic, realistic, optimistic.
-    These are the industry-standard assumptions for early-stage SaaS.
-    """
+    """Build the standard 3-scenario analysis."""
     configs = [
-        ScenarioConfig(
-            name="Pessimistic",
-            monthly_growth_rate_pct=5.0,
-            monthly_churn_rate_pct=8.0,
-        ),
-        ScenarioConfig(
-            name="Realistic",
-            monthly_growth_rate_pct=10.0,
-            monthly_churn_rate_pct=4.0,
-        ),
-        ScenarioConfig(
-            name="Optimistic",
-            monthly_growth_rate_pct=20.0,
-            monthly_churn_rate_pct=2.0,
-        ),
+        ("Pessimistic", 5.0, 8.0),
+        ("Realistic",   10.0, 4.0),
+        ("Optimistic",  20.0, 2.0),
     ]
-
-    return [
-        project_scenario(
+    results = []
+    for name, growth, churn in configs:
+        data = project_scenario(
             starting_customers=starting_customers,
             monthly_price=monthly_price,
             monthly_costs=monthly_costs,
             starting_cash=starting_cash,
-            config=cfg,
+            monthly_growth_pct=growth,
+            monthly_churn_pct=churn,
             months=months,
         )
-        for cfg in configs
-    ]
+        data["name"] = name
+        data["assumptions"] = {"growth_pct": growth, "churn_pct": churn}
+        results.append(data)
+    return results
 
 
 def format_scenarios_for_prompt(scenarios: list[dict]) -> str:
-    """
-    Formats scenario summaries into a clean text block for LLM prompts.
-    Only sends summaries (not full monthly data) to save context tokens.
-    """
+    """Compact summary for LLM injection — sends summaries, not full monthly data."""
     lines = []
     for s in scenarios:
-        summary = s["summary"]
-        assumptions = s["assumptions"]
+        summ = s["summary"]
+        assum = s["assumptions"]
         lines.append(
-            f"[{s['name']}] "
-            f"Growth {assumptions['monthly_growth_rate_pct']}%/mo, "
-            f"Churn {assumptions['monthly_churn_rate_pct']}%/mo → "
-            f"Final MRR: ${summary['final_mrr']:,.0f}, "
-            f"Final Customers: {summary['final_customers']}, "
-            f"Runway: {summary['runway_months']} months, "
-            f"MRR Growth: {summary['mrr_growth_over_period_pct']}%"
+            f"  [{s['name']}] Growth {assum['growth_pct']}%/mo · Churn {assum['churn_pct']}%/mo "
+            f"→ Final MRR: ${summ['final_mrr']:,.0f} · "
+            f"Customers: {summ['final_customers']} · "
+            f"Cash: ${summ['final_cash']:,.0f} · "
+            f"Runway: {summ['runway']}"
         )
     return "\n".join(lines)
