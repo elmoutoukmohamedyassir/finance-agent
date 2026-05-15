@@ -1,9 +1,9 @@
 """
-agents/question_agent.py — Collects missing business info conversationally.
+agents/question_agent.py — Collects missing enterprise financial data conversationally.
 
-Two responsibilities:
-  1. Extract structured data from natural language (using LLM)
-  2. Decide what to ask next (using priority list)
+Adapts questions based on entity_type:
+  corporate  → revenue, COGS, EBITDA, debt, equity, cash flow
+  government → recettes, dépenses, solde, masse salariale, taux d'exécution
 """
 
 import json
@@ -16,57 +16,150 @@ from app.schemas.session import BusinessState
 
 logger = logging.getLogger(__name__)
 
-# Priority order: most impactful for financial analysis first
-FIELD_PRIORITY = [
-    "business_name",
-    "target_audience",
-    "customer_count",
-    "arpu",
-    "mrr",
-    "monthly_costs",
-    "churn_rate",
-    "marketing_budget",
-    "business_model",
-    "funding_stage",
+# ── Field priority: most impactful for analysis first ─────────────────────────
+# Shared fields asked before we know entity type
+COMMON_PRIORITY = [
+    "entity_name",
+    "entity_type",
+    "sector",
+    "total_revenue",
 ]
 
+CORPORATE_PRIORITY = [
+    "cost_of_goods_sold",
+    "operating_expenses",
+    "salaries_and_benefits",
+    "depreciation_amortization",
+    "interest_expense",
+    "tax_expense",
+    "total_assets",
+    "current_assets",
+    "current_liabilities",
+    "total_equity",
+    "total_debt",
+    "cash_inflow",
+    "cash_outflow",
+    "own_capital_invested",
+    "external_funding",
+    "revenue_year2",
+]
+
+GOVERNMENT_PRIORITY = [
+    "tax_revenue",
+    "non_tax_revenue",
+    "grants_and_transfers",
+    "recurrent_expenditure",
+    "capital_expenditure",
+    "debt_service",
+    "subsidies_paid",
+    "salaries_and_benefits",
+    "total_debt",
+    "cash_and_equivalents",
+    "investment_budget",
+    "investment_executed",
+    "revenue_year2",
+]
+
+# ── Questions per field ───────────────────────────────────────────────────────
 FIELD_QUESTIONS = {
-    "business_name": (
-        "What's your SaaS product called, and what does it do in one sentence?"
+    # Common
+    "entity_name": (
+        "Quel est le nom de votre organisation ou entreprise ?"
     ),
-    "target_audience": (
-        "Who are your target customers? "
-        "(e.g. 'small marketing agencies', 'solo developers', 'e-commerce stores')"
+    "entity_type": (
+        "S'agit-il d'une entreprise privée/publique (corporate) "
+        "ou d'une entité publique (ministère, collectivité, établissement public) ?"
     ),
-    "customer_count": (
-        "How many paying customers do you have right now "
-        "(or expect at launch)?"
+    "sector": (
+        "Dans quel secteur d'activité opérez-vous ? "
+        "(ex : industrie, agroalimentaire, BTP, santé, éducation, finances publiques…)"
     ),
-    "arpu": (
-        "What's your monthly price per customer? "
-        "If you have multiple plans, what's the most common one?"
+    "total_revenue": (
+        "Quel est votre chiffre d'affaires (ou recettes totales) pour la période analysée, en MMAD ?"
     ),
-    "mrr": (
-        "What's your current Monthly Recurring Revenue — "
-        "that's simply your number of customers × monthly price."
+    "revenue_year2": (
+        "Quel était votre chiffre d'affaires (ou recettes) l'année précédente, en MMAD ? "
+        "(pour calculer le taux de croissance)"
     ),
-    "monthly_costs": (
-        "What are your total monthly operating costs? "
-        "Include hosting, salaries, tools, and any subscriptions."
+
+    # Corporate
+    "cost_of_goods_sold": (
+        "Quel est votre coût des ventes (coût de revient des produits/services vendus), en MMAD ?"
     ),
-    "churn_rate": (
-        "What percentage of customers cancel per month? "
-        "If pre-launch, estimate — industry average for SMB SaaS is 3–5%."
+    "operating_expenses": (
+        "Quelles sont vos charges d'exploitation hors coût des ventes "
+        "(loyers, énergie, maintenance, achats divers…), en MMAD ?"
     ),
-    "marketing_budget": (
-        "How much do you spend on marketing and customer acquisition each month?"
+    "salaries_and_benefits": (
+        "Quelle est votre masse salariale totale (salaires + charges sociales) pour la période, en MMAD ?"
     ),
-    "business_model": (
-        "Is your SaaS B2B (selling to businesses), B2C (consumers), or B2B2C?"
+    "depreciation_amortization": (
+        "Quel est le montant des dotations aux amortissements et provisions (DAP) pour la période, en MMAD ?"
     ),
-    "funding_stage": (
-        "What's your funding situation? "
-        "(bootstrapped, pre-seed, seed, Series A, etc.)"
+    "interest_expense": (
+        "Quel est le montant de vos charges financières (intérêts sur emprunts) pour la période, en MMAD ?"
+    ),
+    "tax_expense": (
+        "Quel est le montant de l'impôt sur les sociétés (IS) ou impôt équivalent, en MMAD ?"
+    ),
+    "total_assets": (
+        "Quel est le total de votre bilan (total actif) à la clôture, en MMAD ?"
+    ),
+    "current_assets": (
+        "Quel est le montant de l'actif circulant (stocks + créances + trésorerie actif), en MMAD ?"
+    ),
+    "current_liabilities": (
+        "Quel est le montant du passif circulant (dettes fournisseurs + dettes fiscales + autres CT), en MMAD ?"
+    ),
+    "total_equity": (
+        "Quel est le montant des capitaux propres (situation nette) à la clôture, en MMAD ?"
+    ),
+    "total_debt": (
+        "Quel est le montant total de vos dettes financières (court et long terme), en MMAD ?"
+    ),
+    "cash_inflow": (
+        "Quel est le total des encaissements de la période (recettes effectivement perçues), en MMAD ?"
+    ),
+    "cash_outflow": (
+        "Quel est le total des décaissements de la période (paiements effectivement réalisés), en MMAD ?"
+    ),
+    "own_capital_invested": (
+        "Quel est le montant des fonds propres investis dans le projet ou l'exercice, en MMAD ?"
+    ),
+    "external_funding": (
+        "Quel est le montant des financements externes (emprunts bancaires, obligations, bailleurs…), en MMAD ?"
+    ),
+
+    # Government
+    "tax_revenue": (
+        "Quel est le montant des recettes fiscales (IR, IS, TVA, droits de douane…) de la période, en MMAD ?"
+    ),
+    "non_tax_revenue": (
+        "Quel est le montant des recettes non fiscales (redevances, amendes, recettes domaniales…), en MMAD ?"
+    ),
+    "grants_and_transfers": (
+        "Quel est le montant des subventions et transferts reçus (dotations de l'État, fonds internationaux…), en MMAD ?"
+    ),
+    "recurrent_expenditure": (
+        "Quel est le montant des dépenses de fonctionnement (hors investissement), en MMAD ?"
+    ),
+    "capital_expenditure": (
+        "Quel est le montant des dépenses d'investissement (CAPEX budgétaire exécuté), en MMAD ?"
+    ),
+    "debt_service": (
+        "Quel est le montant du service de la dette (remboursements en principal + intérêts) de la période, en MMAD ?"
+    ),
+    "subsidies_paid": (
+        "Quel est le montant des subventions versées (compensation, soutien aux entreprises…), en MMAD ?"
+    ),
+    "cash_and_equivalents": (
+        "Quel est le niveau de la trésorerie disponible (réserves de l'entité) en fin de période, en MMAD ?"
+    ),
+    "investment_budget": (
+        "Quel est le budget d'investissement initialement approuvé pour la période, en MMAD ?"
+    ),
+    "investment_executed": (
+        "Quel est le montant d'investissement réellement exécuté (mandaté et payé), en MMAD ?"
     ),
 }
 
@@ -74,8 +167,6 @@ FIELD_QUESTIONS = {
 def extract_business_info(message: str) -> dict:
     """
     Uses the LLM to extract structured financial data from natural language.
-    
-    E.g. "we charge $99/month and have 45 clients" → {arpu: 99, customer_count: 45}
     Returns {} if nothing extractable.
     """
     try:
@@ -83,7 +174,7 @@ def extract_business_info(message: str) -> dict:
             system_prompt=EXTRACTION_SYSTEM_PROMPT,
             user_message=message,
             temperature=0.0,
-            max_tokens=300,
+            max_tokens=500,
         )
         clean = response.strip().strip("```json").strip("```").strip()
         parsed = json.loads(clean)
@@ -98,26 +189,37 @@ def extract_business_info(message: str) -> dict:
 
 def get_next_question(state: BusinessState, asked_questions: list[str]) -> Optional[str]:
     """
-    Returns the next question to ask, or None if enough info collected.
+    Returns the next question to ask based on entity type and missing fields.
     Never repeats a question already asked this session.
     """
     if state.is_ready_for_analysis():
         return None
 
-    for field in FIELD_PRIORITY:
+    # Phase 1: always ask common fields first
+    for field in COMMON_PRIORITY:
         value = getattr(state, field, None)
         if value is None:
             question = FIELD_QUESTIONS.get(field)
             if question and question not in asked_questions:
                 return question
-            # Already asked this question, skip to next field
 
-    # If all priority fields asked, check if we can proceed anyway
+    # Phase 2: entity-type-specific fields
+    priority = GOVERNMENT_PRIORITY if state.entity_type == "government" else CORPORATE_PRIORITY
+    for field in priority:
+        value = getattr(state, field, None)
+        if value is None:
+            question = FIELD_QUESTIONS.get(field)
+            if question and question not in asked_questions:
+                return question
+
+    # Fallback
     if state.has_revenue_info() and state.has_cost_info():
         return None
 
-    # Last resort fallback
-    fallback = "Could you share your approximate monthly revenue and monthly costs?"
+    fallback = (
+        "Pouvez-vous me communiquer vos recettes totales et vos charges totales "
+        "pour la période analysée, en MMAD ?"
+    )
     return fallback if fallback not in asked_questions else None
 
 

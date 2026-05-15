@@ -1,8 +1,8 @@
 """
-schemas/session.py — Data models for conversation sessions.
+schemas/session.py — Session and business state for enterprise financial agent.
 
-BusinessState holds structured financial data collected progressively.
-ConversationSession ties history + state together per user.
+Replaces SaaS-specific fields (MRR, ARR, churn, ARPU) with enterprise fields
+covering both Corporate and Government entities. Values in MAD millions.
 """
 
 from datetime import datetime
@@ -12,50 +12,93 @@ from pydantic import BaseModel, Field
 
 class BusinessState(BaseModel):
     """
-    Structured SaaS business data collected through conversation.
+    Structured enterprise financial data collected through conversation.
     Every field starts as None and gets filled progressively.
+    entity_type drives which KPIs are computed and which questions are asked.
     """
-    business_name: Optional[str] = None
-    business_model: Optional[str] = None
-    target_audience: Optional[str] = None
-    funding_stage: Optional[str] = None
 
-    mrr: Optional[float] = None
-    arr: Optional[float] = None
-    customer_count: Optional[int] = None
-    arpu: Optional[float] = None
-    pricing_plan: Optional[str] = None
+    # ── Identity ──────────────────────────────────────────────────────────
+    entity_name: Optional[str] = None
+    entity_type: Optional[str] = None     # "corporate" or "government"
+    sector: Optional[str] = None
+    fiscal_year: Optional[int] = None
 
-    churn_rate: Optional[float] = None
-    new_customers_per_month: Optional[int] = None
-    growth_rate: Optional[float] = None
+    # ── Revenue / Receipts (MAD millions) ────────────────────────────────
+    total_revenue: Optional[float] = None
+    revenue_year2: Optional[float] = None   # Prior year for growth calc
 
-    monthly_costs: Optional[float] = None
-    marketing_budget: Optional[float] = None
-    cac: Optional[float] = None
-    gross_margin: Optional[float] = None
+    # Government-specific
+    tax_revenue: Optional[float] = None
+    non_tax_revenue: Optional[float] = None
+    grants_and_transfers: Optional[float] = None
+
+    # ── Costs / Expenditures (MAD millions) ──────────────────────────────
+    cost_of_goods_sold: Optional[float] = None
+    operating_expenses: Optional[float] = None
+    salaries_and_benefits: Optional[float] = None
+    depreciation_amortization: Optional[float] = None
+    interest_expense: Optional[float] = None
+    tax_expense: Optional[float] = None
+    total_expenditure: Optional[float] = None
+
+    # Government-specific
+    capital_expenditure: Optional[float] = None
+    recurrent_expenditure: Optional[float] = None
+    debt_service: Optional[float] = None
+    subsidies_paid: Optional[float] = None
+
+    # ── Balance Sheet (MAD millions) ─────────────────────────────────────
+    total_assets: Optional[float] = None
+    current_assets: Optional[float] = None
+    current_liabilities: Optional[float] = None
+    total_equity: Optional[float] = None
+    total_debt: Optional[float] = None
+
+    # ── Cash (MAD millions) ──────────────────────────────────────────────
+    cash_and_equivalents: Optional[float] = None
+    cash_inflow: Optional[float] = None
+    cash_outflow: Optional[float] = None
+    operating_cash_flow: Optional[float] = None
+    investing_cash_flow: Optional[float] = None
+
+    # ── Investment (MAD millions) ────────────────────────────────────────
+    own_capital_invested: Optional[float] = None
+    external_funding: Optional[float] = None
+    investment_budget: Optional[float] = None
+    investment_executed: Optional[float] = None
+
+    months: int = 12
+
+    # ── Readiness checks ─────────────────────────────────────────────────
 
     def has_revenue_info(self) -> bool:
-        """True if we can determine MRR somehow."""
-        return bool(
-            self.mrr
-            or (self.customer_count and self.arpu)
-            or (self.arr)
-        )
+        if self.entity_type == "government":
+            return bool(
+                self.total_revenue
+                or (self.tax_revenue and self.non_tax_revenue)
+            )
+        return bool(self.total_revenue)
 
     def has_cost_info(self) -> bool:
-        """True if we have operating costs."""
-        return self.monthly_costs is not None
+        if self.entity_type == "government":
+            return bool(
+                self.total_expenditure
+                or (self.recurrent_expenditure and self.capital_expenditure)
+            )
+        return bool(
+            self.operating_expenses is not None
+            or self.cost_of_goods_sold is not None
+        )
 
     def is_ready_for_analysis(self) -> bool:
-        """
-        Minimum viable data for a meaningful financial analysis.
-        We need at least revenue info + cost info.
-        """
-        return self.has_revenue_info() and self.has_cost_info()
+        """Minimum viable: entity type + revenue + costs."""
+        return bool(
+            self.entity_type
+            and self.has_revenue_info()
+            and self.has_cost_info()
+        )
 
     def filled_fields(self) -> dict:
-        """Returns only fields that have been filled."""
         return {k: v for k, v in self.model_dump().items() if v is not None}
 
 
@@ -64,13 +107,8 @@ class ConversationSession(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-    # Raw conversation turns for LLM context
     conversation_history: list[dict] = Field(default_factory=list)
-
-    # Structured business data extracted from conversation
     business_state: BusinessState = Field(default_factory=BusinessState)
-
-    # Tracks questions asked to avoid repetition
     questions_asked: list[str] = Field(default_factory=list)
 
     def add_message(self, role: str, content: str):

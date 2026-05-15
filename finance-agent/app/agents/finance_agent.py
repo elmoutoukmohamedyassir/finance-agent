@@ -1,18 +1,15 @@
 """
-agents/finance_agent.py — Main orchestrator.
+agents/finance_agent.py — Main orchestrator for enterprise financial analysis.
 
-SCOPE CONTROL: finance_guard.py is REMOVED.
-Scope is enforced through FINANCE_AGENT_SYSTEM_PROMPT which contains explicit
-instructions on how to handle off-topic questions. This is simpler, cheaper
-(no extra API call), and more context-aware (the LLM understands the full
-conversation, a keyword filter does not).
+Supports both Corporate and Government/Public sector entities.
+All monetary values in MAD millions.
 
 FLOW:
   1. Load/create session
-  2. Extract any business data from message (LLM extraction)
+  2. Extract any financial data from message (LLM extraction)
   3. If not enough data → ask next question
-  4. If enough data → calculate metrics (pure Python) → retrieve RAG →
-     send pre-calculated data to LLM for interpretation
+  4. If enough data → calculate KPIs (pure Python) → retrieve RAG →
+     send pre-calculated data to LLM for interpretation only
 """
 
 import logging
@@ -42,7 +39,6 @@ def handle_chat(session_id: str | None, user_message: str) -> ChatResponse:
     """Entry point: takes a message, returns a structured response."""
     session = get_or_create_session(session_id)
 
-    # Extract any structured data from this message
     extracted = extract_business_info(user_message)
     if extracted:
         update_business_state(session, extracted)
@@ -72,7 +68,6 @@ def _ask_next_question(session: ConversationSession) -> ChatResponse:
     )
 
     if not question:
-        # Fallback: we somehow have no more questions but can't analyze yet
         return _general_answer(session)
 
     session.questions_asked.append(question)
@@ -80,9 +75,12 @@ def _ask_next_question(session: ConversationSession) -> ChatResponse:
     is_first_turn = len(session.conversation_history) == 1
     if is_first_turn:
         message = (
-            "Hi! I'm your AI SaaS Finance Advisor. I help founders evaluate "
-            "their business financially before and during launch.\n\n"
-            f"Let's get started — {question}"
+            "Bonjour ! Je suis FinanceGPT, votre conseiller IA en analyse financière "
+            "d'entreprises et de finances publiques au Maroc.\n\n"
+            "Je peux analyser la santé financière d'entreprises (PME, grands groupes) "
+            "ou d'entités publiques (ministères, collectivités, établissements publics) "
+            "et vous fournir des indicateurs clés, des alertes et des recommandations actionnables.\n\n"
+            f"Commençons — {question}"
         )
     else:
         message = question
@@ -97,32 +95,40 @@ def _ask_next_question(session: ConversationSession) -> ChatResponse:
 def _run_analysis(session: ConversationSession) -> ChatResponse:
     """
     Full analysis:
-    1. Pure Python metric calculation (no LLM → no hallucinations)
-    2. Pure Python scenario projection
-    3. RAG retrieval (relevant finance document chunks)
-    4. LLM interprets pre-calculated data (grounded, not free-form)
+    1. Pure Python KPI calculation (no LLM → no hallucinations)
+    2. Pure Python scenario projection (3 years, 3 scenarios)
+    3. RAG retrieval (relevant chunks from Bulletin mensuel, CGI, etc.)
+    4. LLM interprets pre-calculated data only (grounded, not free-form)
     """
     state = session.business_state
 
-    # Step 1: Calculate metrics — pure Python
+    # Step 1: Calculate KPIs — pure Python
     metrics = calculate_from_business_state(state)
     metrics_dict = {k: v for k, v in metrics.model_dump().items() if v is not None}
 
     # Step 2: Scenarios — pure Python
     scenarios_str = ""
-    if state.customer_count and state.monthly_costs is not None:
-        price = state.arpu or (state.mrr / state.customer_count if state.mrr and state.customer_count else 0)
-        if price > 0:
-            scenarios = build_standard_scenarios(
-                starting_customers=state.customer_count,
-                monthly_price=price,
-                monthly_costs=state.monthly_costs,
-                starting_cash=50000,
-                months=12,
-            )
-            scenarios_str = format_scenarios_for_prompt(scenarios)
+    if state.total_revenue and (state.operating_expenses or state.total_expenditure):
+        costs = (
+            (state.cost_of_goods_sold or 0)
+            + (state.operating_expenses or 0)
+            + (state.salaries_and_benefits or 0)
+        ) or state.total_expenditure or 0
 
-    # Step 3: RAG retrieval — finance documents
+        if costs > 0:
+            scenarios = build_standard_scenarios(
+                starting_revenue=state.total_revenue,
+                starting_costs=costs,
+                starting_cash=state.cash_and_equivalents or 0,
+                starting_debt=state.total_debt or 0,
+                debt_service_annual=state.debt_service or 0,
+                capex_annual=state.capital_expenditure or 0,
+                years=3,
+                entity_type=state.entity_type or "corporate",
+            )
+            scenarios_str = format_scenarios_for_prompt(scenarios, years=3)
+
+    # Step 3: RAG retrieval
     rag_query = _build_rag_query(state, metrics_dict)
     rag_context = retrieve_context(rag_query)
 
@@ -152,10 +158,8 @@ def _run_analysis(session: ConversationSession) -> ChatResponse:
 
 def _general_answer(session: ConversationSession) -> ChatResponse:
     """
-    General finance Q&A — used for follow-up questions after analysis,
-    or exploratory finance questions not requiring full business data.
-    
-    The system prompt handles off-topic rejection through prompt engineering.
+    General finance Q&A — for follow-up questions after analysis,
+    or exploratory questions that don't need full business data.
     """
     last_message = session.conversation_history[-1]["content"]
     rag_context = retrieve_context(last_message)
@@ -177,14 +181,24 @@ def _general_answer(session: ConversationSession) -> ChatResponse:
 
 
 def _build_rag_query(state, metrics_dict: dict) -> str:
-    """Build a targeted semantic search query based on the business situation."""
-    parts = ["SaaS financial analysis startup metrics"]
-    if state.churn_rate and state.churn_rate > 5:
-        parts.append("customer churn retention strategies")
-    if metrics_dict.get("ltv_cac_ratio") and metrics_dict["ltv_cac_ratio"] < 3:
-        parts.append("LTV CAC ratio improvement acquisition cost")
-    if metrics_dict.get("burn_rate"):
-        parts.append("burn rate runway cash management")
-    if state.business_model:
-        parts.append(f"{state.business_model} SaaS pricing model")
+    """Build a targeted semantic search query based on the entity situation."""
+    parts = ["analyse financière entreprise finances publiques Maroc"]
+
+    if state.entity_type == "government":
+        parts.append("budget état finances publiques recettes fiscales dépenses")
+        if metrics_dict.get("budget_execution_rate_pct") and metrics_dict["budget_execution_rate_pct"] < 70:
+            parts.append("taux exécution budgétaire faible investissement public")
+        if metrics_dict.get("overall_balance_mad_m") and metrics_dict["overall_balance_mad_m"] < 0:
+            parts.append("déficit budgétaire financement dette publique")
+    else:
+        if metrics_dict.get("ebitda_margin_pct") and metrics_dict["ebitda_margin_pct"] < 8:
+            parts.append("amélioration marge EBITDA rentabilité opérationnelle")
+        if metrics_dict.get("debt_service_coverage") and metrics_dict["debt_service_coverage"] < 1.5:
+            parts.append("couverture service dette restructuration financière")
+        if metrics_dict.get("current_ratio") and metrics_dict["current_ratio"] < 1:
+            parts.append("liquidité trésorerie court terme financement")
+
+    if state.sector:
+        parts.append(state.sector)
+
     return " ".join(parts)
