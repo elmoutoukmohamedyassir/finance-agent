@@ -1,165 +1,154 @@
 """
-services/session_service.py — In-memory session storage.
+services/session_service.py — SQLite-backed session persistence.
 
-Sessions live here on the server. The client only needs to send session_id.
-State is NOT managed by the client.
+WHY SQLite over in-memory dict:
+  - Sessions survive server restarts and hot-reloads
+  - No Redis/Postgres needed — single file
+  - Works on Windows and Linux identically
 
-CHANGE FROM ORIGINAL:
-  update_business_state() previously had a hardcoded type_map with SaaS fields
-  (mrr, arr, arpu, churn_rate, cac...). Replaced with dynamic field mapping
-  driven by BusinessState's own schema — no hardcoding, always in sync.
+Schema: sessions(id TEXT PK, data TEXT, updated_at TEXT)
+data = ConversationSession JSON (excludes non-serializable runtime objects)
 """
-
-import uuid
-import logging
+import uuid, json, sqlite3, logging, typing
 from datetime import datetime, timedelta
-from typing import Any
+from pathlib import Path
+from typing import Optional
 
-from app.schemas.session import ConversationSession, BusinessState
+from app.schemas.session import ConversationSession, BusinessState, Phase
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+DB_PATH = Path(getattr(settings, "db_path", "./data/sessions.db"))
 
-_sessions: dict[str, ConversationSession] = {}
+
+def _get_conn() -> sqlite3.Connection:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.execute("""CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at TEXT NOT NULL)""")
+    conn.commit()
+    return conn
 
 
-def get_or_create_session(session_id: str | None) -> ConversationSession:
-    """Returns existing session or creates a new one."""
+def get_or_create_session(session_id: Optional[str]) -> ConversationSession:
     _cleanup_expired()
-
-    if session_id and session_id in _sessions:
-        return _sessions[session_id]
-
+    if session_id:
+        s = _load(session_id)
+        if s:
+            return s
     new_id = session_id or str(uuid.uuid4())
     session = ConversationSession(session_id=new_id)
-    _sessions[new_id] = session
+    _save_to_db(session)
     logger.info(f"New session: {new_id}")
     return session
 
 
 def save_session(session: ConversationSession) -> None:
     session.updated_at = datetime.utcnow()
-    _sessions[session.session_id] = session
+    _save_to_db(session)
 
 
-def update_business_state(session: ConversationSession, extracted: dict) -> None:
-    """
-    Merges extracted data into the session's BusinessState.
-    Uses BusinessState's Pydantic schema as the source of truth for field types.
-    Only updates fields that were just found — never overwrites existing with None.
-
-    Replaces the old hardcoded SaaS type_map with dynamic reflection.
-    """
+def update_business_state_fields(session: ConversationSession, extracted: dict) -> None:
+    """Merges extracted data. Never overwrites existing. Never stores None."""
     state = session.business_state
-
-    # Get field types directly from the Pydantic schema
     schema_fields = BusinessState.model_fields
-
     for field_name, value in extracted.items():
-        if value is None:
+        if value is None or field_name not in schema_fields:
             continue
-        if field_name not in schema_fields:
-            logger.debug(f"Ignoring unknown field '{field_name}' from extraction")
+        if getattr(state, field_name, None) is not None:
             continue
-
-        # Only update if field is currently None (don't overwrite confirmed data)
-        current = getattr(state, field_name, None)
-        if current is not None:
-            continue
-
-        # Coerce to the correct type based on Pydantic annotation
         try:
-            coerced = _coerce(value, schema_fields[field_name].annotation)
-            setattr(state, field_name, coerced)
-            logger.debug(f"Set {field_name} = {coerced}")
-        except (ValueError, TypeError) as e:
+            setattr(state, field_name, _coerce(value, schema_fields[field_name].annotation))
+        except Exception as e:
             logger.warning(f"Could not set {field_name}={value!r}: {e}")
-
     session.business_state = state
 
 
-def load_hypothesis_output(session: ConversationSession, hypothesis_json: dict) -> None:
-    """
-    Load a full HypothesisOutput JSON directly into the session's BusinessState.
-    Used when the Finance Agent is called programmatically by the Hypothesis Agent.
-
-    The hypothesis_ingestor translates H-variables → BusinessState fields.
-    This is the clean agent-to-agent communication path.
-    """
-    from app.schemas.hypothesis_output import HypothesisOutput
+def load_hypothesis_into_session(session: ConversationSession, hypothesis) -> None:
+    """Translates HypothesisOutput → BusinessState + derived variables."""
     from app.tools.hypothesis_ingestor import ingest_hypothesis
-
     try:
-        hypothesis = HypothesisOutput.model_validate(hypothesis_json)
-        financial_data, derived, proj_inputs = ingest_hypothesis(hypothesis)
-
-        # Store the full FinancialData fields into BusinessState
-        state = session.business_state
-        state.entity_type = "corporate"
-        state.entity_name = financial_data.entity_name
-        state.sector = financial_data.sector
-        state.total_revenue = financial_data.total_revenue
-        state.cost_of_goods_sold = financial_data.cost_of_goods_sold
-        state.operating_expenses = financial_data.operating_expenses
-        state.salaries_and_benefits = financial_data.salaries_and_benefits
-        state.depreciation_amortization = financial_data.depreciation_amortization
-        state.interest_expense = financial_data.interest_expense
-        state.total_assets = financial_data.total_assets
-        state.total_equity = financial_data.total_equity
-        state.total_debt = financial_data.total_debt
-        state.cash_inflow = financial_data.cash_inflow
-        state.cash_outflow = financial_data.cash_outflow
-        state.own_capital_invested = financial_data.own_capital_invested
-        state.external_funding = financial_data.external_funding
-
-        # Store derived and projection inputs in session for plan generator
-        session.derived_variables = derived
-        session.projection_inputs = proj_inputs
-        session.business_state = state
-
+        fin, derived, proj = ingest_hypothesis(hypothesis, fiscal_year=2025)
+        s = session.business_state
+        s.entity_type="corporate"; s.entity_name=fin.entity_name; s.sector=fin.sector
+        s.total_revenue=fin.total_revenue; s.cost_of_goods_sold=fin.cost_of_goods_sold
+        s.operating_expenses=fin.operating_expenses; s.salaries_and_benefits=fin.salaries_and_benefits
+        s.depreciation_amortization=fin.depreciation_amortization; s.interest_expense=fin.interest_expense
+        s.total_assets=fin.total_assets; s.total_equity=fin.total_equity; s.total_debt=fin.total_debt
+        s.cash_inflow=fin.cash_inflow; s.cash_outflow=fin.cash_outflow
+        s.own_capital_invested=fin.own_capital_invested; s.external_funding=fin.external_funding
+        h = hypothesis
+        s.segment_client=h.ventes.H1_segment_client
+        s.prix_vente_unitaire=h.ventes.H2_prix_vente_unitaire
+        s.nb_clients_mois1=h.ventes.H4_nb_clients_mois1
+        s.taux_croissance_mensuel=h.ventes.H5_taux_croissance_mensuel
+        s.taux_fidelisation=h.ventes.H6_taux_fidelisation
+        s.type_activite=h.achats.H8_type_activite
+        s.loyer_mensuel=h.charges_fixes.H13_loyer_mensuel
+        s.salaires_equipe=h.charges_fixes.H14_salaires_equipe
+        s.investissements_initiaux=h.charges_fixes.H19_investissements_initiaux
+        s.emprunts=h.charges_fixes.H21_emprunts
+        if h.metadata:
+            s.sector=h.metadata.secteur or s.sector
+            s.statut_juridique=h.metadata.statut_juridique
+            s.own_capital_invested=h.metadata.capital_social or s.own_capital_invested
+        session.business_state=s
+        session.derived_variables=derived
+        session.projection_inputs=proj
         logger.info(f"HypothesisOutput loaded into session {session.session_id}")
     except Exception as e:
-        logger.error(f"Failed to load HypothesisOutput: {e}")
+        logger.error(f"load_hypothesis_into_session failed: {e}")
         raise
 
 
 def get_session_count() -> int:
-    return len(_sessions)
+    with _get_conn() as c:
+        return c.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+
+
+def _load(sid: str) -> Optional[ConversationSession]:
+    try:
+        with _get_conn() as c:
+            row = c.execute("SELECT data FROM sessions WHERE id=?", (sid,)).fetchone()
+        if row:
+            return ConversationSession.model_validate(json.loads(row[0]))
+    except Exception as e:
+        logger.warning(f"Load session {sid} failed: {e}")
+    return None
+
+
+def _save_to_db(session: ConversationSession) -> None:
+    try:
+        data = session.model_dump_json(
+            exclude={"cached_plan","cached_metrics","derived_variables","projection_inputs"}
+        )
+        with _get_conn() as c:
+            c.execute("INSERT OR REPLACE INTO sessions VALUES (?,?,?)",
+                      (session.session_id, data, session.updated_at.isoformat()))
+            c.commit()
+    except Exception as e:
+        logger.error(f"Save session {session.session_id} failed: {e}")
 
 
 def _cleanup_expired() -> None:
-    ttl = timedelta(minutes=settings.session_ttl_minutes)
-    now = datetime.utcnow()
-    expired = [sid for sid, s in _sessions.items() if now - s.updated_at > ttl]
-    for sid in expired:
-        del _sessions[sid]
-    if len(_sessions) > settings.max_sessions:
-        oldest = sorted(_sessions.items(), key=lambda x: x[1].updated_at)
-        for sid, _ in oldest[: len(_sessions) - settings.max_sessions]:
-            del _sessions[sid]
+    ttl = timedelta(minutes=getattr(settings, "session_ttl_minutes", 60))
+    cutoff = (datetime.utcnow() - ttl).isoformat()
+    try:
+        with _get_conn() as c:
+            c.execute("DELETE FROM sessions WHERE updated_at<?", (cutoff,))
+            c.commit()
+    except Exception as e:
+        logger.warning(f"Cleanup error: {e}")
 
 
-def _coerce(value: Any, annotation) -> Any:
-    """
-    Coerce a value to the annotated type.
-    Handles Optional[X] by unwrapping to X.
-    """
-    import typing
+def _coerce(value, annotation):
     origin = getattr(annotation, "__origin__", None)
-
-    # Handle Optional[X] = Union[X, None]
     if origin is typing.Union:
         args = [a for a in annotation.__args__ if a is not type(None)]
-        if args:
-            annotation = args[0]
-
-    if annotation is int:
-        return int(float(value))
-    if annotation is float:
-        return float(value)
-    if annotation is str:
-        return str(value)
-    if annotation is bool:
-        return bool(value)
+        if args: annotation = args[0]
+    if annotation is int:   return int(float(str(value)))
+    if annotation is float: return float(str(value).replace(",",".").replace(" ",""))
+    if annotation is str:   return str(value)
+    if annotation is bool:  return bool(value)
     return value
