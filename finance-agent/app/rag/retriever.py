@@ -29,15 +29,33 @@ def _get_client() -> chromadb.ClientAPI:
     return _chroma_client
 
 
-def retrieve_context(query: str, top_k: Optional[int] = None) -> str:
+def retrieve_context(query: str, top_k: Optional[int] = None, confidence_threshold: Optional[float] = None) -> tuple[str, float, bool]:
     """
     Embed the query → search ChromaDB → filter by relevance → format for LLM.
-    Returns empty string if nothing relevant found (agent answers from training).
+    Returns (context_text, confidence_score, should_use_fallback).
+    
+    Args:
+        query: User question
+        top_k: Number of results to retrieve
+        confidence_threshold: Min average similarity to use RAG (default from config)
+    
+    Returns:
+        (context: str, confidence: float, use_fallback: bool)
     """
+    threshold = confidence_threshold or settings.rag_confidence_threshold
     results = retrieve_raw(query, top_k)
+    
     if not results:
-        return ""
-    return _format_context(results)
+        return "", 0.0, True
+    
+    # Calculate average confidence
+    avg_confidence = sum(r["similarity"] for r in results) / len(results)
+    should_fallback = avg_confidence < threshold
+    
+    context = _format_context(results)
+    logger.info(f"RAG confidence: {avg_confidence:.2f} (threshold: {threshold}, fallback: {should_fallback})")
+    
+    return context, avg_confidence, should_fallback
 
 
 def retrieve_raw(query: str, top_k: Optional[int] = None) -> list[dict]:

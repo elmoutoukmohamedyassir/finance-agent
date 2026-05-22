@@ -8,6 +8,7 @@ No SaaS metrics (no LTV, CAC, churn, MRR, ARPU).
 
 from __future__ import annotations
 from app.schemas.financial_variables import FinancialData
+from app.tools.variable_glossary import get_explanation
 
 
 class KPIEngine:
@@ -326,3 +327,32 @@ class KPIEngine:
         if self._is_gov:
             base["budget_execution"] = self.budget_execution_status()
         return base
+
+    def get_kpi_with_explanation(self, kpi_name: str, value: float, unit: str = "", language: str = "fr") -> dict:
+        """
+        Return KPI with concise explanation from glossary.
+        
+        Format: {"name": "...", "value": ..., "unit": "...", "explanation": "...", "language": "..."}
+        """
+        exp_data = get_explanation(kpi_name, language)
+        if "error" in exp_data:
+            return {
+                "name": kpi_name,
+                "value": value,
+                "unit": unit,
+                "explanation": "No explanation available",
+                "language": language
+            }
+        
+        # Extract just the explanation part (remove the "Name: " prefix)
+        explanation = exp_data["explanation"]
+        if ":" in explanation:
+            explanation = explanation.split(":", 1)[1].strip()
+        
+        return {
+            "name": kpi_name,
+            "value": round(value, 2) if isinstance(value, float) else value,
+            "unit": unit,
+            "explanation": explanation,
+            "language": language
+        }

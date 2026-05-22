@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     groq_api_key: str = Field(default="")
     groq_model:   str = Field(default="llama3-70b-8192")
 
+    # Gemini (Fallback LLM)
+    gemini_api_key: Optional[str] = Field(default=None)
+    gemini_model: str = Field(default="gemini-1.5-pro")
+
     # RAG / Embeddings
     chroma_persist_dir: str   = Field(default="./data/chroma")
     docs_dir:           str   = Field(default="./docs")
@@ -25,13 +29,14 @@ class Settings(BaseSettings):
     embedding_backend:  str   = Field(default="ollama")
     ollama_base_url:    str   = Field(default="http://localhost:11434")
     rag_top_k:          int   = Field(default=5)
+    rag_confidence_threshold: float = Field(default=0.5)
 
     # Session
     session_ttl_minutes: int = Field(default=60)
     max_sessions:        int = Field(default=500)
 
-    # Database (SQLite for sessions)
-    db_path: str = Field(default="./data/sessions.db")
+    # Database (SQLite for sessions & analytics)
+    db_path: str = Field(default="./data/finance_agent.db")
 
     # CORS
     allowed_origins: str = Field(default="*")

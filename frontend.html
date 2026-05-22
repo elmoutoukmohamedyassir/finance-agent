@@ -881,6 +881,12 @@ input, textarea { font-family: inherit; outline: none; }
       </div>
       <div class="input-area">
         <div class="input-wrapper">
+          <div style="display:flex; gap:8px; margin-bottom:8px; align-items:center; font-size:12px; color:var(--text-3)">
+            <label style="display:flex; align-items:center; gap:6px">
+              📧 Email client:
+              <input type="email" id="clientEmail" placeholder="optionnel@example.com" style="width:180px; background:var(--bg-2); border:1px solid var(--border); border-radius:6px; padding:6px 10px; color:var(--text-1); font-size:12px"/>
+            </label>
+          </div>
           <div class="input-box">
             <textarea
               id="messageInput"
@@ -893,7 +899,7 @@ input, textarea { font-family: inherit; outline: none; }
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
             </button>
           </div>
-          <div class="input-hint">Entrée pour envoyer · Shift+Entrée pour une nouvelle ligne</div>
+          <div class="input-hint">Entrée pour envoyer · Shift+Entrée pour une nouvelle ligne · Optionnel: remplissez email client pour suivi en BD</div>
         </div>
       </div>
     </div>
@@ -1103,6 +1109,7 @@ function sendQuick(msg) {
 
 async function sendMessage() {
   const input = document.getElementById('messageInput');
+  const clientEmail = document.getElementById('clientEmail')?.value?.trim() || null;
   const text = input.value.trim();
   if (!text || isLoading) return;
   isLoading = true;
@@ -1115,16 +1122,22 @@ async function sendMessage() {
   const typingEl = appendTyping();
 
   try {
+    const payload = { 
+      session_id: sessionId, 
+      message: text,
+    };
+    if (clientEmail) payload.client_email = clientEmail;
+
     const res = await fetch(`${API}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId, message: text }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error(`Erreur serveur: ${res.status}`);
     const data = await res.json();
     sessionId = data.session_id;
     typingEl.remove();
-    appendMsg('assistant', data.message, data.metrics_calculated, data.agent_mode);
+    appendMsg('assistant', data.message, data.metrics_calculated, data.agent_mode, data.kpi_suggestions, data.kpi_details, data.action_items, data.metadata);
     updateMode(data.agent_mode);
   } catch (err) {
     typingEl.remove();
@@ -1137,7 +1150,7 @@ async function sendMessage() {
   }
 }
 
-function appendMsg(role, text, metrics, mode) {
+function appendMsg(role, text, metrics, mode, kpiSuggestions, kpiDetails, actionItems, metadata) {
   const inner = document.getElementById('messagesInner');
   const div = document.createElement('div');
   div.className = `msg ${role}`;
@@ -1152,6 +1165,77 @@ function appendMsg(role, text, metrics, mode) {
 
   if (metrics && Object.keys(metrics).length > 0) {
     bubble.appendChild(buildMetricsCard(metrics));
+  }
+
+  // KPI Suggestions
+  if (kpiSuggestions && kpiSuggestions.length > 0) {
+    const sugDiv = document.createElement('div');
+    sugDiv.style.marginTop = '12px';
+    sugDiv.style.padding = '10px 12px';
+    sugDiv.style.background = 'var(--blue-dim)';
+    sugDiv.style.border = '1px solid rgba(96,165,250,0.2)';
+    sugDiv.style.borderRadius = 'var(--radius)';
+    sugDiv.innerHTML = `<div style="font-size:11px; color:var(--blue); font-weight:600; margin-bottom:6px">💡 Analyses suggérées:</div>
+      <div style="display:flex; flex-wrap:wrap; gap:6px">
+        ${kpiSuggestions.map(s => `<span style="background:rgba(96,165,250,0.15); padding:4px 8px; border-radius:6px; font-size:11px; color:var(--blue)">${s}</span>`).join('')}
+      </div>`;
+    bubble.appendChild(sugDiv);
+  }
+
+  // KPI Details with Explanations
+  if (kpiDetails && Object.keys(kpiDetails).length > 0) {
+    const kpiDiv = document.createElement('div');
+    kpiDiv.style.marginTop = '12px';
+    kpiDiv.style.padding = '10px 12px';
+    kpiDiv.style.background = 'var(--green-dim)';
+    kpiDiv.style.border = '1px solid rgba(62,207,142,0.2)';
+    kpiDiv.style.borderRadius = 'var(--radius)';
+    kpiDiv.innerHTML = `<div style="font-size:11px; color:var(--green); font-weight:600; margin-bottom:8px">📊 KPIs calculés:</div>`;
+    
+    Object.entries(kpiDetails).forEach(([name, data]) => {
+      const kpiRow = document.createElement('div');
+      kpiRow.style.marginBottom = '8px';
+      kpiRow.style.paddingBottom = '8px';
+      kpiRow.style.borderBottom = '1px solid rgba(62,207,142,0.1)';
+      kpiRow.style.fontSize = '11.5px';
+      kpiRow.innerHTML = `
+        <div style="color:var(--green); font-weight:600">${name}: <span style="color:var(--text-1)">${data.value} ${data.unit || ''}</span></div>
+        <div style="color:var(--text-3); font-size:10.5px; margin-top:2px; font-style:italic">${data.explanation || ''}</div>
+      `;
+      kpiDiv.appendChild(kpiRow);
+    });
+    bubble.appendChild(kpiDiv);
+  }
+
+  // Action Items
+  if (actionItems && actionItems.length > 0) {
+    const actionDiv = document.createElement('div');
+    actionDiv.style.marginTop = '12px';
+    actionDiv.style.padding = '10px 12px';
+    actionDiv.style.background = 'var(--amber)' ? 'rgba(251,191,36,0.12)' : '';
+    actionDiv.style.border = '1px solid rgba(251,191,36,0.2)';
+    actionDiv.style.borderRadius = 'var(--radius)';
+    actionDiv.innerHTML = `<div style="font-size:11px; color:var(--amber); font-weight:600; margin-bottom:6px">✓ Prochaines étapes:</div>
+      <ul style="margin:0; padding-left:16px; color:var(--text-2); font-size:11.5px">
+        ${actionItems.map(a => `<li style="margin-bottom:4px">${a}</li>`).join('')}
+      </ul>`;
+    bubble.appendChild(actionDiv);
+  }
+
+  // Metadata (LLM used, RAG confidence)
+  if (metadata && Object.keys(metadata).length > 0) {
+    const metaDiv = document.createElement('div');
+    metaDiv.style.marginTop = '10px';
+    metaDiv.style.paddingTop = '8px';
+    metaDiv.style.borderTop = '1px solid var(--border)';
+    metaDiv.style.fontSize = '10px';
+    metaDiv.style.color = 'var(--text-3)';
+    metaDiv.style.fontFamily = 'var(--font-mono)';
+    let metaText = '';
+    if (metadata.llm_used) metaText += `🤖 LLM: ${metadata.llm_used} · `;
+    if (metadata.rag_confidence !== undefined) metaText += `RAG conf: ${(metadata.rag_confidence * 100).toFixed(0)}%`;
+    metaDiv.textContent = metaText;
+    bubble.appendChild(metaDiv);
   }
 
   div.appendChild(avatar);

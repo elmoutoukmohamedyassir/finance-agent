@@ -21,6 +21,7 @@ import logging
 from typing import Optional
 
 from app.core.groq_client import groq_client
+from app.core.gemini_client import gemini_client
 from app.core.prompts import (
     build_analysis_system_prompt,
     build_analysis_user_message,
@@ -30,6 +31,7 @@ from app.tools.scenario_engine import build_standard_scenarios, format_scenarios
 from app.tools.hypothesis_ingestor import ingest_hypothesis, format_derived_for_prompt
 from app.tools.plan_generator import generate_24m_plan, format_plan_for_prompt
 from app.tools.fiscal_constants import get_fiscal_constants
+from app.tools.variable_glossary import get_explanation
 from app.agents.question_agent import (
     extract_and_validate,
     get_next_question,
@@ -175,21 +177,44 @@ def _handle_hypothesis_payload(session, payload, user_message):
 def _handle_collection(session, user_message):
     state = session.business_state
 
-    # First turn: welcome
+    # First turn: welcome + respond to the first message
     if session.phase == Phase.WELCOME:
         session.phase = Phase.COLLECTING
-        first_q = _get_first_question(state)
+        
+        # Build system prompt without RAG (to avoid Ollama dependency)
+        system_prompt = build_analysis_system_prompt(phase="pre_creation", rag_context="")
+        
+        welcome_intro = (
+            "Bonjour ! Je suis votre conseiller financier IA pour la création "
+            "et la gestion d'entreprise au Maroc.\n\n"
+            "Je vous accompagne en **3 phases** :\n"
+            "1️⃣ **Pré-création** — Validation financière, seuil de rentabilité, plan prévisionnel\n"
+            "2️⃣ **Création** — Structure juridique, obligations fiscales (IS/TVA/CNSS)\n"
+            "3️⃣ **Post-création** — Suivi KPIs, alertes, recommandations continues\n\n"
+        )
+        
+        # Get LLM response to user's initial message
+        try:
+            llm_response = groq_client.chat(
+                system_prompt=system_prompt,
+                user_message=(
+                    f"L'utilisateur vient de dire: \"{user_message}\"\n\n"
+                    f"Réponds brièvement (2-3 lignes) en reconnaissant son projet, "
+                    f"puis pose la première question pour en savoir plus sur son entreprise "
+                    f"(secteur d'activité, type de services, effectif prévu, etc.)."
+                ),
+                temperature=0.3,
+                max_tokens=300,
+            )
+            first_response = welcome_intro + llm_response
+        except Exception as e:
+            logger.warning(f"LLM response failed: {e}")
+            first_q = _get_first_question(state)
+            first_response = welcome_intro + first_q
+        
         return ChatResponse(
             session_id=session.session_id,
-            message=(
-                "Bonjour ! Je suis votre conseiller financier IA pour la création "
-                "et la gestion d'entreprise au Maroc.\n\n"
-                "Je vous accompagne en **3 phases** :\n"
-                "1️⃣ **Pré-création** — Validation financière, seuil de rentabilité, plan prévisionnel\n"
-                "2️⃣ **Création** — Structure juridique, obligations fiscales (IS/TVA/CNSS)\n"
-                "3️⃣ **Post-création** — Suivi KPIs, alertes, recommandations continues\n\n"
-                f"Commençons. {first_q}"
-            ),
+            message=first_response,
             agent_mode="collecting",
         )
 
@@ -362,9 +387,9 @@ def _handle_pre_creation(session, user_message):
     return _answer_finance_question(session, user_message)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────���────────────────────
 # BUSINESS PLAN GENERATION
-# ─────────────────────────────────────────────────────────────────────────────
+# ────���────────────────────────────────────────────────────────────────────────
 
 def _handle_plan_confirmation(session, user_message):
     lower = user_message.lower()
@@ -485,7 +510,7 @@ def _handle_creation(session, user_message):
     return _answer_finance_question(session, user_message, phase_hint="creation")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────���────────────────────────────────────────────────────────────
 # POST-CREATION PHASE
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -555,17 +580,61 @@ def _run_post_creation_analysis(session, user_message=""):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _answer_finance_question(session, user_message, phase_hint=""):
-    rag_context = retrieve_context(user_message)
+    """Answer finance question using RAG + Groq, fallback to Gemini if RAG confidence low."""
     phase = phase_hint or session.phase.value
+    
+    # Retrieve context with confidence scoring
+    rag_context, confidence, should_fallback = retrieve_context(user_message)
+    
+    # Choose LLM based on confidence
+    use_gemini = should_fallback and gemini_client.is_available()
+    
     system_prompt = build_analysis_system_prompt(phase=phase, rag_context=rag_context)
-    response_text = groq_client.chat(
-        system_prompt=system_prompt,
-        user_message=user_message,
-        conversation_history=session.conversation_history[-8:],
-        temperature=0.25,
-        max_tokens=1000,
+    
+    try:
+        if use_gemini:
+            logger.info(f"[v0] RAG confidence low ({confidence:.2f}), using Gemini fallback")
+            response_text = gemini_client.chat(
+                system_prompt=system_prompt,
+                user_message=user_message,
+                conversation_history=session.conversation_history[-8:],
+                temperature=0.25,
+                max_tokens=1000,
+            )
+            llm_used = "gemini"
+        else:
+            response_text = groq_client.chat(
+                system_prompt=system_prompt,
+                user_message=user_message,
+                conversation_history=session.conversation_history[-8:],
+                temperature=0.25,
+                max_tokens=1000,
+            )
+            llm_used = "groq"
+    except Exception as e:
+        logger.warning(f"Primary LLM failed, attempting fallback: {e}")
+        if not use_gemini and gemini_client.is_available():
+            try:
+                response_text = gemini_client.chat(
+                    system_prompt=system_prompt,
+                    user_message=user_message,
+                    conversation_history=session.conversation_history[-8:],
+                    temperature=0.25,
+                    max_tokens=1000,
+                )
+                llm_used = "gemini"
+            except Exception as e2:
+                logger.error(f"Both LLMs failed: {e2}")
+                raise RuntimeError("AI service unavailable. Please try again later.")
+        else:
+            raise
+    
+    return ChatResponse(
+        session_id=session.session_id, 
+        message=response_text, 
+        agent_mode="qa",
+        metadata={"llm_used": llm_used, "rag_confidence": confidence}
     )
-    return ChatResponse(session_id=session.session_id, message=response_text, agent_mode="qa")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
