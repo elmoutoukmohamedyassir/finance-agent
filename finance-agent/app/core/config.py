@@ -16,7 +16,7 @@ class Settings(BaseSettings):
 
     # Groq
     groq_api_key: str = Field(default="")
-    groq_model:   str = Field(default="llama3-70b-8192")
+    groq_model:   str = Field(default="llama-3.3-70b-versatile")
 
     # Gemini (Fallback LLM)
     gemini_api_key: Optional[str] = Field(default=None)
