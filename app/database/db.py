@@ -4,8 +4,6 @@ database/db.py — SQLAlchemy engine and session management.
 from typing import Generator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.pool import StaticPool
-from pathlib import Path
 import logging
 
 from app.core.config import get_settings
@@ -14,16 +12,18 @@ from app.database.models import Base
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-# Create engine with SQLite (or other DB if DATABASE_URL configured)
-db_url = getattr(settings, "db_path", "./data/finance_agent.db")
-if not db_url.startswith("sqlite"):
-    # Assume it's a file path, convert to sqlite URL
-    db_url = f"sqlite:///{db_url}"
+# PostgreSQL connection URL — expects DATABASE_URL in settings, e.g.:
+#   postgresql://user:password@localhost:5432/finance_agent
+# Or split credentials via individual settings fields (see below).
+db_url = settings.database_url  # e.g. "postgresql://user:pass@host:5432/dbname"
 
 engine = create_engine(
     db_url,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
+    # PostgreSQL connection pool settings
+    pool_size=5,           # Number of persistent connections kept in the pool
+    max_overflow=10,       # Extra connections allowed above pool_size under load
+    pool_pre_ping=True,    # Verify connection health before each checkout (handles dropped connections)
+    pool_recycle=1800,     # Recycle connections after 30 minutes (avoids stale connections)
     echo=False,
 )
 

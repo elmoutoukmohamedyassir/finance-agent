@@ -35,8 +35,8 @@ class Settings(BaseSettings):
     session_ttl_minutes: int = Field(default=60)
     max_sessions:        int = Field(default=500)
 
-    # Database (SQLite for sessions & analytics)
-    db_path: str = Field(default="./data/finance_agent.db")
+    # Database (Postgresql for sessions & analytics)
+    database_url: str = Field(default="postgresql://postgres:postgres@localhost:5432/finance_agent")
 
     # CORS
     allowed_origins: str = Field(default="*")
