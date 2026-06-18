@@ -1,1627 +1,266 @@
 <!DOCTYPE html>
-<html lang="fr" dir="ltr">
+<html lang="fr">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>FinanceGPT — Analyse Financière Enterprise</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Finance Agent — Maroc</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
-/* ── DESIGN TOKENS ─────────────────────────────────────────────────────── */
-:root {
-  --bg:          #0a0c10;
-  --bg-2:        #0f1117;
-  --bg-3:        #151820;
-  --bg-4:        #1c2030;
-  --border:      rgba(255,255,255,0.07);
-  --border-act:  rgba(255,255,255,0.15);
-  --gold:        #c9a84c;
-  --gold-dim:    rgba(201,168,76,0.15);
-  --gold-glow:   rgba(201,168,76,0.08);
-  --text-1:      #f0ede6;
-  --text-2:      #8b8f9a;
-  --text-3:      #555a68;
-  --green:       #3ecf8e;
-  --green-dim:   rgba(62,207,142,0.12);
-  --red:         #f87171;
-  --red-dim:     rgba(248,113,113,0.12);
-  --blue:        #60a5fa;
-  --blue-dim:    rgba(96,165,250,0.12);
-  --amber:       #fbbf24;
-  --radius:      10px;
-  --radius-lg:   16px;
-  --font-head:   'DM Serif Display', Georgia, serif;
-  --font-body:   'Outfit', sans-serif;
-  --font-mono:   'DM Mono', monospace;
-  --sidebar-w:   260px;
-  --header-h:    56px;
-}
-
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; overflow: hidden; }
-body {
-  font-family: var(--font-body);
-  background: var(--bg);
-  color: var(--text-1);
-  font-size: 14px;
-  line-height: 1.6;
-}
-button { cursor: pointer; font-family: inherit; border: none; outline: none; }
-input, textarea { font-family: inherit; outline: none; }
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border-act); border-radius: 4px; }
-
-/* ── LAYOUT ─────────────────────────────────────────────────────────────── */
-.app { display: flex; height: 100vh; overflow: hidden; }
-
-/* ── SIDEBAR ──────────────────────────────────────────────────────────── */
-.sidebar {
-  width: var(--sidebar-w);
-  min-width: var(--sidebar-w);
-  background: var(--bg-2);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  position: relative;
-}
-.sidebar::after {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--gold), transparent);
-  opacity: 0.4;
-}
-.sidebar-header {
-  padding: 20px 20px 16px;
-  border-bottom: 1px solid var(--border);
-}
-.logo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-.logo-icon {
-  width: 32px; height: 32px;
-  background: linear-gradient(135deg, var(--gold), #a07830);
-  border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 14px; font-weight: 700; color: #0a0c10;
-  font-family: var(--font-mono);
-  flex-shrink: 0;
-}
-.logo-text {
-  font-family: var(--font-head);
-  font-size: 17px;
-  color: var(--text-1);
-  letter-spacing: -0.3px;
-}
-.logo-text span { color: var(--gold); }
-.btn-new-chat {
-  width: 100%;
-  padding: 9px 14px;
-  background: var(--gold-dim);
-  border: 1px solid rgba(201,168,76,0.25);
-  border-radius: var(--radius);
-  color: var(--gold);
-  font-size: 13px;
-  font-weight: 500;
-  display: flex; align-items: center; gap: 8px;
-  transition: all 0.2s;
-}
-.btn-new-chat:hover {
-  background: rgba(201,168,76,0.22);
-  border-color: rgba(201,168,76,0.4);
-}
-.btn-new-chat svg { flex-shrink: 0; }
-
-.sidebar-nav {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px 12px 0;
-}
-.nav-section-label {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-3);
-  padding: 8px 8px 4px;
-}
-.nav-item {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 10px;
-  border-radius: 8px;
-  color: var(--text-2);
-  font-size: 13.5px;
-  font-weight: 400;
-  cursor: pointer;
-  transition: all 0.15s;
-  margin-bottom: 1px;
-  border: 1px solid transparent;
-  position: relative;
-}
-.nav-item:hover { background: var(--bg-3); color: var(--text-1); }
-.nav-item.active {
-  background: var(--bg-4);
-  color: var(--text-1);
-  border-color: var(--border);
-}
-.nav-item.active::before {
-  content: '';
-  position: absolute;
-  left: 0; top: 50%;
-  transform: translateY(-50%);
-  width: 3px; height: 18px;
-  background: var(--gold);
-  border-radius: 0 3px 3px 0;
-}
-.nav-badge {
-  margin-left: auto;
-  background: var(--gold-dim);
-  color: var(--gold);
-  font-size: 10px;
-  font-family: var(--font-mono);
-  padding: 2px 6px;
-  border-radius: 10px;
-  border: 1px solid rgba(201,168,76,0.2);
-}
-
-.sidebar-footer {
-  padding: 12px;
-  border-top: 1px solid var(--border);
-}
-.rag-status {
-  display: flex; align-items: center; gap: 8px;
-  padding: 9px 12px;
-  background: var(--bg-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  font-size: 12px;
-  color: var(--text-2);
-}
-.rag-dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: var(--text-3);
-  flex-shrink: 0;
-  transition: background 0.3s;
-}
-.rag-dot.ready { background: var(--green); box-shadow: 0 0 6px var(--green); }
-.rag-dot.error { background: var(--red); }
-
-/* ── MAIN ────────────────────────────────────────────────────────────────── */
-.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-
-/* ── TOPBAR ────────────────────────────────────────────────────────────── */
-.topbar {
-  height: var(--header-h);
-  border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 24px;
-  background: var(--bg);
-  flex-shrink: 0;
-  gap: 16px;
-}
-.topbar-title {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-1);
-}
-.topbar-mode {
-  display: flex; align-items: center; gap: 6px;
-  font-size: 11.5px;
-  font-family: var(--font-mono);
-  color: var(--text-3);
-}
-.mode-chip {
-  padding: 3px 10px;
-  border-radius: 20px;
-  font-size: 11px;
-  font-weight: 500;
-  font-family: var(--font-mono);
-  letter-spacing: 0.04em;
-  transition: all 0.3s;
-}
-.mode-chip.gathering { background: var(--blue-dim); color: var(--blue); border: 1px solid rgba(96,165,250,0.2); }
-.mode-chip.analyzing { background: var(--gold-dim); color: var(--gold); border: 1px solid rgba(201,168,76,0.2); }
-.mode-chip.answering { background: var(--green-dim); color: var(--green); border: 1px solid rgba(62,207,142,0.2); }
-
-.topbar-actions { display: flex; gap: 8px; }
-.btn-icon {
-  width: 32px; height: 32px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
-  color: var(--text-2);
-  transition: all 0.15s;
-}
-.btn-icon:hover { background: var(--bg-3); color: var(--text-1); border-color: var(--border-act); }
-
-/* ── VIEW CONTAINER ──────────────────────────────────────────────────────── */
-.view { display: none; flex: 1; overflow: hidden; flex-direction: column; }
-.view.active { display: flex; }
-
-/* ── CHAT VIEW ───────────────────────────────────────────────────────────── */
-.chat-view { flex-direction: column; }
-
-.messages-container {
-  flex: 1;
-  overflow-y: auto;
-  padding: 32px 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-.messages-inner {
-  max-width: 760px;
-  width: 100%;
-  margin: 0 auto;
-  padding: 0 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.welcome-screen {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 60px 24px;
-  gap: 20px;
-}
-.welcome-icon {
-  width: 64px; height: 64px;
-  background: linear-gradient(135deg, rgba(201,168,76,0.2), rgba(201,168,76,0.05));
-  border: 1px solid rgba(201,168,76,0.25);
-  border-radius: 18px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 28px;
-}
-.welcome-title {
-  font-family: var(--font-head);
-  font-size: 28px;
-  color: var(--text-1);
-  line-height: 1.2;
-}
-.welcome-title em { color: var(--gold); font-style: italic; }
-.welcome-sub {
-  font-size: 14px;
-  color: var(--text-2);
-  max-width: 480px;
-  line-height: 1.7;
-}
-.welcome-pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: center;
-  max-width: 560px;
-}
-.welcome-pill {
-  padding: 8px 14px;
-  background: var(--bg-3);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  font-size: 12.5px;
-  color: var(--text-2);
-  cursor: pointer;
-  transition: all 0.15s;
-  line-height: 1.4;
-  text-align: left;
-}
-.welcome-pill:hover {
-  background: var(--bg-4);
-  border-color: var(--border-act);
-  color: var(--text-1);
-}
-
-/* Messages */
-.msg {
-  display: flex;
-  gap: 12px;
-  animation: fadeSlide 0.25s ease forwards;
-  padding: 4px 0;
-}
-@keyframes fadeSlide {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.msg.user { flex-direction: row-reverse; }
-.msg-avatar {
-  width: 30px; height: 30px;
-  border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 12px;
-  font-weight: 600;
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-.msg.user .msg-avatar { background: var(--gold-dim); color: var(--gold); border: 1px solid rgba(201,168,76,0.2); }
-.msg.assistant .msg-avatar { background: var(--bg-4); color: var(--text-2); border: 1px solid var(--border); font-family: var(--font-mono); font-size: 10px; }
-
-.msg-bubble {
-  max-width: 82%;
-  padding: 12px 16px;
-  border-radius: 12px;
-  font-size: 13.5px;
-  line-height: 1.7;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.msg.user .msg-bubble {
-  background: var(--bg-4);
-  border: 1px solid var(--border);
-  color: var(--text-1);
-  border-radius: 12px 4px 12px 12px;
-}
-.msg.assistant .msg-bubble {
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  color: var(--text-1);
-  border-radius: 4px 12px 12px 12px;
-}
-
-/* Metrics card inside assistant bubble */
-.metrics-card {
-  margin-top: 14px;
-  background: var(--bg-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-.metrics-card-header {
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
-  font-size: 11px;
-  font-family: var(--font-mono);
-  color: var(--text-3);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  display: flex; align-items: center; gap: 6px;
-}
-.metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 1px;
-  background: var(--border);
-}
-.metric-cell {
-  background: var(--bg-3);
-  padding: 10px 14px;
-}
-.metric-cell-label { font-size: 10.5px; color: var(--text-3); font-family: var(--font-mono); margin-bottom: 3px; }
-.metric-cell-value { font-size: 15px; font-weight: 600; font-family: var(--font-mono); color: var(--text-1); }
-.metric-cell-value.good { color: var(--green); }
-.metric-cell-value.warn { color: var(--amber); }
-.metric-cell-value.bad  { color: var(--red); }
-
-.health-badge {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 12px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
-  margin-top: 10px;
-}
-.health-badge.good { background: var(--green-dim); color: var(--green); border: 1px solid rgba(62,207,142,0.2); }
-.health-badge.warn { background: rgba(251,191,36,0.12); color: var(--amber); border: 1px solid rgba(251,191,36,0.2); }
-.health-badge.bad  { background: var(--red-dim); color: var(--red); border: 1px solid rgba(248,113,113,0.2); }
-
-.typing-indicator {
-  display: flex; gap: 12px; padding: 4px 0;
-  animation: fadeSlide 0.25s ease forwards;
-}
-.typing-dots {
-  padding: 14px 18px;
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: 4px 12px 12px 12px;
-  display: flex; gap: 5px; align-items: center;
-}
-.typing-dots span {
-  width: 5px; height: 5px;
-  border-radius: 50%;
-  background: var(--text-3);
-  animation: bounce 1.2s infinite;
-}
-.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
-.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
-@keyframes bounce {
-  0%, 60%, 100% { transform: translateY(0); }
-  30% { transform: translateY(-5px); background: var(--gold); }
-}
-
-/* ── INPUT AREA ──────────────────────────────────────────────────────────── */
-.input-area {
-  padding: 16px 24px 20px;
-  border-top: 1px solid var(--border);
-  background: var(--bg);
-  flex-shrink: 0;
-}
-.input-wrapper {
-  max-width: 760px;
-  margin: 0 auto;
-  position: relative;
-}
-.input-box {
-  display: flex;
-  align-items: flex-end;
-  gap: 10px;
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 12px 14px;
-  transition: border-color 0.2s;
-}
-.input-box:focus-within { border-color: rgba(201,168,76,0.35); }
-#messageInput {
-  flex: 1;
-  background: transparent;
-  border: none;
-  color: var(--text-1);
-  font-size: 14px;
-  resize: none;
-  max-height: 140px;
-  min-height: 22px;
-  line-height: 1.6;
-}
-#messageInput::placeholder { color: var(--text-3); }
-.btn-send {
-  width: 34px; height: 34px;
-  background: var(--gold);
-  border-radius: 9px;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-  transition: all 0.15s;
-  color: #0a0c10;
-}
-.btn-send:hover { background: #d4b060; transform: scale(1.04); }
-.btn-send:disabled { background: var(--bg-4); color: var(--text-3); transform: none; cursor: not-allowed; }
-.input-hint {
-  text-align: center;
-  font-size: 11px;
-  color: var(--text-3);
-  margin-top: 8px;
-}
-
-/* ── METRICS VIEW ────────────────────────────────────────────────────────── */
-.metrics-view { overflow-y: auto; }
-.view-content { max-width: 900px; margin: 0 auto; padding: 32px 24px; }
-.view-header { margin-bottom: 28px; }
-.view-header h2 { font-family: var(--font-head); font-size: 22px; color: var(--text-1); margin-bottom: 6px; }
-.view-header p { font-size: 13px; color: var(--text-2); }
-
-.form-section {
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 20px;
-  margin-bottom: 16px;
-}
-.form-section-title {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--gold);
-  margin-bottom: 16px;
-  display: flex; align-items: center; gap: 8px;
-}
-.form-section-title::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--border);
-}
-.form-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 12px;
-}
-.form-group { display: flex; flex-direction: column; gap: 5px; }
-.form-group label { font-size: 11.5px; color: var(--text-2); font-weight: 500; }
-.form-group input, .form-group select {
-  background: var(--bg-3);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 12px;
-  color: var(--text-1);
-  font-size: 13px;
-  transition: border-color 0.15s;
-  width: 100%;
-}
-.form-group input:focus, .form-group select:focus { border-color: rgba(201,168,76,0.35); }
-.form-group select option { background: var(--bg-3); }
-.form-group .unit {
-  font-size: 10.5px;
-  color: var(--text-3);
-  font-family: var(--font-mono);
-  margin-top: 2px;
-}
-
-.entity-toggle {
-  display: flex;
-  background: var(--bg-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 3px;
-  margin-bottom: 20px;
-  width: fit-content;
-  gap: 3px;
-}
-.entity-btn {
-  padding: 7px 18px;
-  border-radius: 7px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-2);
-  background: transparent;
-  border: 1px solid transparent;
-  transition: all 0.15s;
-}
-.entity-btn.active {
-  background: var(--bg-4);
-  color: var(--text-1);
-  border-color: var(--border);
-}
-
-.btn-calculate {
-  padding: 11px 24px;
-  background: var(--gold);
-  color: #0a0c10;
-  border-radius: var(--radius);
-  font-size: 13.5px;
-  font-weight: 600;
-  transition: all 0.15s;
-  display: flex; align-items: center; gap: 8px;
-  margin-top: 8px;
-}
-.btn-calculate:hover { background: #d4b060; }
-.btn-calculate:disabled { background: var(--bg-4); color: var(--text-3); cursor: not-allowed; }
-
-.results-panel {
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  margin-top: 20px;
-  display: none;
-}
-.results-panel.visible { display: block; animation: fadeSlide 0.3s ease; }
-.results-panel-header {
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: space-between;
-}
-.results-panel-header h3 { font-size: 14px; font-weight: 600; }
-.kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 1px;
-  background: var(--border);
-}
-.kpi-tile {
-  background: var(--bg-2);
-  padding: 16px 18px;
-}
-.kpi-tile-label { font-size: 11px; color: var(--text-3); font-family: var(--font-mono); margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.05em; }
-.kpi-tile-val { font-size: 20px; font-weight: 600; font-family: var(--font-mono); color: var(--text-1); }
-.kpi-tile-val.up { color: var(--green); }
-.kpi-tile-val.down { color: var(--red); }
-.kpi-tile-val.neutral { color: var(--amber); }
-.kpi-tile-sub { font-size: 11px; color: var(--text-3); margin-top: 3px; }
-
-.warnings-list { padding: 16px 20px; display: flex; flex-direction: column; gap: 8px; }
-.warning-item {
-  display: flex; gap: 10px;
-  padding: 10px 14px;
-  background: rgba(248,113,113,0.06);
-  border: 1px solid rgba(248,113,113,0.15);
-  border-radius: 8px;
-  font-size: 12.5px;
-  color: var(--text-1);
-  line-height: 1.6;
-}
-.warning-icon { color: var(--red); flex-shrink: 0; margin-top: 1px; }
-
-/* ── SCENARIO VIEW ─────────────────────────────────────────────────────── */
-.scenario-view { overflow-y: auto; }
-
-.scenario-cards {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  margin-top: 20px;
-}
-.scenario-card {
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  transition: border-color 0.2s;
-}
-.scenario-card:hover { border-color: var(--border-act); }
-.scenario-card-head {
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
-  display: flex; justify-content: space-between; align-items: center;
-}
-.scenario-name { font-size: 13px; font-weight: 600; }
-.scenario-name.pessimiste { color: var(--red); }
-.scenario-name.realiste   { color: var(--gold); }
-.scenario-name.optimiste  { color: var(--green); }
-.scenario-growth { font-size: 11.5px; font-family: var(--font-mono); color: var(--text-3); }
-.scenario-body { padding: 14px 16px; }
-.scenario-row {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 6px 0;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
-  font-size: 12.5px;
-}
-.scenario-row:last-child { border: none; }
-.scenario-row-label { color: var(--text-2); }
-.scenario-row-val { font-family: var(--font-mono); font-weight: 500; color: var(--text-1); font-size: 13px; }
-
-/* ── RAG VIEW ──────────────────────────────────────────────────────────── */
-.rag-view { overflow-y: auto; }
-.search-bar {
-  display: flex; gap: 10px; margin-bottom: 20px;
-}
-.search-bar input {
-  flex: 1;
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 10px 14px;
-  color: var(--text-1);
-  font-size: 13.5px;
-}
-.search-bar input:focus { border-color: rgba(201,168,76,0.35); }
-.btn-search {
-  padding: 10px 18px;
-  background: var(--bg-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-1);
-  font-size: 13px;
-  font-weight: 500;
-  transition: all 0.15s;
-}
-.btn-search:hover { background: var(--bg-4); border-color: var(--border-act); }
-.btn-ingest {
-  padding: 10px 18px;
-  background: var(--gold-dim);
-  border: 1px solid rgba(201,168,76,0.25);
-  border-radius: var(--radius);
-  color: var(--gold);
-  font-size: 13px;
-  font-weight: 500;
-  transition: all 0.15s;
-}
-.btn-ingest:hover { background: rgba(201,168,76,0.22); }
-
-.rag-result {
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px 16px;
-  margin-bottom: 8px;
-  animation: fadeSlide 0.2s ease;
-}
-.rag-result-header {
-  display: flex; justify-content: space-between; align-items: center;
-  margin-bottom: 8px;
-}
-.rag-result-source { font-size: 11px; font-family: var(--font-mono); color: var(--text-3); }
-.rag-score {
-  font-size: 11px;
-  font-family: var(--font-mono);
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: var(--green-dim);
-  color: var(--green);
-}
-.rag-result-text { font-size: 13px; color: var(--text-2); line-height: 1.7; }
-
-.rag-stats {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  margin-bottom: 20px;
-}
-.rag-stat {
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px 16px;
-}
-.rag-stat-val { font-size: 22px; font-weight: 600; font-family: var(--font-mono); color: var(--text-1); }
-.rag-stat-label { font-size: 11px; color: var(--text-3); margin-top: 3px; }
-
-/* ── LOADER ─────────────────────────────────────────────────────────────── */
-.spinner {
-  width: 16px; height: 16px;
-  border: 2px solid rgba(201,168,76,0.2);
-  border-top-color: var(--gold);
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-  display: inline-block;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* ── TOAST ──────────────────────────────────────────────────────────────── */
-.toast-container {
-  position: fixed;
-  bottom: 24px; right: 24px;
-  display: flex; flex-direction: column; gap: 8px;
-  z-index: 1000;
-}
-.toast {
-  padding: 10px 16px;
-  background: var(--bg-4);
-  border: 1px solid var(--border-act);
-  border-radius: var(--radius);
-  font-size: 12.5px;
-  color: var(--text-1);
-  animation: toastIn 0.25s ease;
-  max-width: 320px;
-}
-.toast.error { border-color: rgba(248,113,113,0.3); color: var(--red); }
-.toast.success { border-color: rgba(62,207,142,0.3); color: var(--green); }
-@keyframes toastIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0e0e0e; --surface: #161616; --border: #2a2a2a; --border-light: #333;
+    --text: #e8e8e8; --text-muted: #666; --text-dim: #444;
+    --accent: #d4ff4e; --accent-dim: rgba(212,255,78,0.08); --accent-border: rgba(212,255,78,0.25);
+    --user-bg: #1a1a1a; --agent-bg: #131313;
+    --mono: 'IBM Plex Mono', monospace; --sans: 'IBM Plex Sans', sans-serif; --radius: 4px;
+  }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; line-height: 1.6; }
+  .app { display: grid; grid-template-rows: auto 1fr auto auto; height: 100vh; max-width: 760px; margin: 0 auto; }
+  header { padding: 20px 24px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .logo { display: flex; align-items: center; gap: 10px; }
+  .logo-mark { width: 28px; height: 28px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+  .logo-mark svg { width: 14px; height: 14px; }
+  .logo-text { font-family: var(--mono); font-size: 13px; font-weight: 500; }
+  .logo-text span { color: var(--accent); }
+  .phase-badge { font-family: var(--mono); font-size: 11px; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border); padding: 4px 10px; border-radius: 20px; transition: all 0.3s; }
+  .phase-badge.active { color: var(--accent); border-color: var(--accent-border); background: var(--accent-dim); }
+  .messages { overflow-y: auto; display: flex; flex-direction: column; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  .messages::-webkit-scrollbar { width: 4px; }
+  .messages::-webkit-scrollbar-thumb { background: var(--border); }
+  .msg { padding: 20px 24px; border-bottom: 1px solid var(--border); animation: fadeIn 0.2s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .msg.user { background: var(--user-bg); }
+  .msg.agent { background: var(--agent-bg); }
+  .msg-meta { font-family: var(--mono); font-size: 10px; color: var(--text-dim); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .msg-meta .who { color: var(--text-muted); }
+  .msg-meta .mode { background: var(--surface); border: 1px solid var(--border); padding: 1px 6px; border-radius: 3px; }
+  .msg-meta .mode.collecting { color: #6cb3ff; border-color: rgba(108,179,255,0.3); }
+  .msg-meta .mode.analyzing  { color: #b39ddb; border-color: rgba(179,157,219,0.3); }
+  .msg-meta .mode.ideation   { color: #80cbc4; border-color: rgba(128,203,196,0.3); }
+  .msg-meta .mode.error      { color: #ef9a9a; border-color: rgba(239,154,154,0.3); }
+  .msg-text { color: var(--text); white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.7; }
+  .msg-text.user-text { color: #c8c8c8; }
+  .typing { display: flex; align-items: center; gap: 5px; padding: 20px 24px; }
+  .typing span { width: 5px; height: 5px; background: var(--text-dim); border-radius: 50%; animation: blink 1.2s infinite; }
+  .typing span:nth-child(2) { animation-delay: 0.2s; }
+  .typing span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes blink { 0%,80%,100% { opacity: 0.2; } 40% { opacity: 1; } }
+  .typing.hidden { display: none; }
+  .state-bar { border-top: 1px solid var(--border); padding: 10px 24px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: var(--surface); min-height: 36px; }
+  .state-item { font-family: var(--mono); font-size: 11px; display: flex; gap: 5px; }
+  .state-item .key { color: var(--text-dim); }
+  .state-item .val { color: var(--accent); }
+  .state-empty { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+  .input-area { border-top: 1px solid var(--border); padding: 16px 24px; display: flex; gap: 10px; align-items: flex-end; background: var(--bg); }
+  textarea { flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--text); font-family: var(--sans); font-size: 14px; padding: 10px 14px; border-radius: var(--radius); resize: none; line-height: 1.5; max-height: 120px; min-height: 42px; transition: border-color 0.2s; outline: none; }
+  textarea:focus { border-color: var(--border-light); }
+  textarea::placeholder { color: var(--text-dim); }
+  button.send { background: var(--accent); color: #0e0e0e; border: none; font-family: var(--mono); font-size: 12px; font-weight: 500; padding: 10px 18px; border-radius: var(--radius); cursor: pointer; height: 42px; white-space: nowrap; transition: opacity 0.15s, transform 0.1s; }
+  button.send:hover { opacity: 0.88; }
+  button.send:active { transform: scale(0.97); }
+  button.send:disabled { opacity: 0.3; cursor: default; }
+  .reset-btn { font-family: var(--mono); font-size: 11px; color: var(--text-dim); background: none; border: none; cursor: pointer; padding: 2px 0; transition: color 0.15s; }
+  .reset-btn:hover { color: var(--text-muted); }
+  .welcome { padding: 48px 24px 32px; border-bottom: 1px solid var(--border); }
+  .welcome h1 { font-family: var(--mono); font-size: 22px; font-weight: 500; color: var(--text); margin-bottom: 8px; }
+  .welcome h1 span { color: var(--accent); }
+  .welcome p { color: var(--text-muted); font-size: 13px; max-width: 480px; line-height: 1.7; }
+  .welcome-hints { margin-top: 20px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .hint { font-family: var(--mono); font-size: 11px; color: var(--text-muted); border: 1px solid var(--border); padding: 5px 10px; border-radius: 3px; cursor: pointer; transition: all 0.15s; background: var(--surface); }
+  .hint:hover { border-color: var(--accent-border); color: var(--accent); background: var(--accent-dim); }
+  .api-row { margin-top: 16px; display: flex; align-items: center; gap: 8px; }
+  .api-row label { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+  .api-row input { font-family: var(--mono); font-size: 11px; background: var(--surface); border: 1px solid var(--border); color: var(--text-muted); padding: 4px 8px; border-radius: 3px; width: 220px; outline: none; }
+  .api-row input:focus { border-color: var(--border-light); }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
+  .dot.ok { background: var(--accent); }
+  .dot.err { background: #ef9a9a; }
 </style>
 </head>
 <body>
-
 <div class="app">
-  <!-- ── SIDEBAR ──────────────────────────────────────────────────────────── -->
-  <aside class="sidebar">
-    <div class="sidebar-header">
-      <div class="logo">
-        <div class="logo-icon">Fₙ</div>
-        <div class="logo-text">Finance<span>GPT</span></div>
+
+  <header>
+    <div class="logo">
+      <div class="logo-mark">
+        <svg viewBox="0 0 14 14" fill="none"><path d="M7 1L13 4V10L7 13L1 10V4L7 1Z" stroke="#0e0e0e" stroke-width="1.5" stroke-linejoin="round"/></svg>
       </div>
-      <button class="btn-new-chat" onclick="newChat()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Nouvelle analyse
-      </button>
+      <div class="logo-text">finance<span>_agent</span>.ma</div>
     </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <button class="reset-btn" onclick="resetSession()">nouvelle session</button>
+      <div class="phase-badge" id="phaseBadge">welcome</div>
+    </div>
+  </header>
 
-    <nav class="sidebar-nav">
-      <div class="nav-section-label">Navigation</div>
-      <div class="nav-item active" onclick="switchView('chat', this)">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        Chat Agent
+  <div class="messages" id="messages">
+    <div class="welcome" id="welcome">
+      <h1>Bonjour,<br><span>votre conseiller financier</span> est prêt.</h1>
+      <p>Décrivez votre idée de business. L'agent vous guidera étape par étape — de l'idée jusqu'au plan financier complet, avec calculs fiscaux marocains inclus.</p>
+      <div class="api-row">
+        <label>API URL</label>
+        <input type="text" id="apiUrl" value="http://localhost:8000" />
+        <div class="dot" id="connDot"></div>
       </div>
-      <div class="nav-item" onclick="switchView('metrics', this)">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-        Calcul KPIs
-      </div>
-      <div class="nav-item" onclick="switchView('scenario', this)">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
-        Scénarios
-      </div>
-      <div class="nav-item" onclick="switchView('rag', this)">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        Base de docs
-        <span class="nav-badge" id="ragBadge">—</span>
-      </div>
-
-      <div class="nav-section-label" style="margin-top:16px">Exemples</div>
-      <div class="nav-item" onclick="loadExample('corporate')">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
-        Groupe industriel
-      </div>
-      <div class="nav-item" onclick="loadExample('government')">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 22V9l9-7 9 7v13"/><path d="M9 22V12h6v10"/></svg>
-        Entité publique
-      </div>
-      <div class="nav-item" onclick="loadExample('startup')">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-        Startup (H1–H22)
-      </div>
-    </nav>
-
-    <div class="sidebar-footer">
-      <div class="rag-status">
-        <div class="rag-dot" id="ragDot"></div>
-        <span id="ragStatusText">Vérification RAG...</span>
+      <div class="welcome-hints">
+        <div class="hint" onclick="useHint(this)">Je veux ouvrir un restaurant à Casablanca</div>
+        <div class="hint" onclick="useHint(this)">J'ai une idée de startup SaaS B2B</div>
+        <div class="hint" onclick="useHint(this)">Je veux lancer une boutique en ligne</div>
+        <div class="hint" onclick="useHint(this)">Conseil en marketing digital freelance</div>
       </div>
     </div>
-  </aside>
-
-  <!-- ── MAIN ────────────────────────────────────────────────────────────── -->
-  <div class="main">
-    <!-- Topbar -->
-    <header class="topbar">
-      <div class="topbar-title" id="topbarTitle">Chat Agent</div>
-      <div class="topbar-mode">
-        <span id="modeLabel" style="display:none">Mode:</span>
-        <span class="mode-chip" id="modeChip" style="display:none"></span>
-      </div>
-      <div class="topbar-actions">
-        <button class="btn-icon" title="Effacer la session" onclick="clearSession()">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-        </button>
-        <button class="btn-icon" title="Ouvrir Swagger" onclick="window.open('http://localhost:8000/docs','_blank')">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        </button>
-      </div>
-    </header>
-
-    <!-- ── CHAT VIEW ─────────────────────────────────────────────────────── -->
-    <div class="view chat-view active" id="view-chat">
-      <div class="messages-container" id="messagesContainer">
-        <div class="messages-inner" id="messagesInner">
-          <div class="welcome-screen" id="welcomeScreen">
-            <div class="welcome-icon">⚡</div>
-            <div class="welcome-title">Analyse financière <em>enterprise</em></div>
-            <div class="welcome-sub">
-              Posez vos questions financières, partagez vos données, ou lancez une analyse complète.
-              L'agent collecte les informations manquantes automatiquement.
-            </div>
-            <div class="welcome-pills">
-              <div class="welcome-pill" onclick="sendQuick('Analyser les finances de mon entreprise')">🏢 Analyser mon entreprise</div>
-              <div class="welcome-pill" onclick="sendQuick('Analyser le budget d\'une entité publique')">🏛 Budget entité publique</div>
-              <div class="welcome-pill" onclick="sendQuick('Notre CA est 45 MMAD, charges 32 MMAD, dette 12 MMAD')">📊 Données directes</div>
-              <div class="welcome-pill" onclick="sendQuick('Quels sont les benchmarks pour la marge EBITDA au Maroc ?')">📈 Benchmarks sectoriels</div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="input-area">
-        <div class="input-wrapper">
-          <div style="display:flex; gap:8px; margin-bottom:8px; align-items:center; font-size:12px; color:var(--text-3)">
-            <label style="display:flex; align-items:center; gap:6px">
-              📧 Email client:
-              <input type="email" id="clientEmail" placeholder="optionnel@example.com" style="width:180px; background:var(--bg-2); border:1px solid var(--border); border-radius:6px; padding:6px 10px; color:var(--text-1); font-size:12px"/>
-            </label>
-          </div>
-          <div class="input-box">
-            <textarea
-              id="messageInput"
-              placeholder="Posez votre question ou partagez vos données financières..."
-              rows="1"
-              onkeydown="handleKey(event)"
-              oninput="autoResize(this)"
-            ></textarea>
-            <button class="btn-send" id="sendBtn" onclick="sendMessage()">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-            </button>
-          </div>
-          <div class="input-hint">Entrée pour envoyer · Shift+Entrée pour une nouvelle ligne · Optionnel: remplissez email client pour suivi en BD</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── METRICS VIEW ───────────────────────────────────────────────────── -->
-    <div class="view metrics-view" id="view-metrics">
-      <div class="view-content">
-        <div class="view-header">
-          <h2>Calculateur de KPIs</h2>
-          <p>Saisir les données financières pour calculer tous les indicateurs instantanément. Aucune IA impliquée — calcul Python pur.</p>
-        </div>
-
-        <div class="entity-toggle">
-          <button class="entity-btn active" id="btnCorporate" onclick="setEntity('corporate')">🏢 Corporate</button>
-          <button class="entity-btn" id="btnGovernment" onclick="setEntity('government')">🏛 Gouvernement</button>
-        </div>
-
-        <!-- Corporate form -->
-        <div id="formCorporate">
-          <div class="form-section">
-            <div class="form-section-title">Revenus</div>
-            <div class="form-grid">
-              <div class="form-group"><label>CA / Revenus totaux</label><input type="number" id="m_total_revenue" placeholder="87.5"><div class="unit">MMAD</div></div>
-              <div class="form-group"><label>CA année précédente</label><input type="number" id="m_revenue_year2" placeholder="80.0"><div class="unit">MMAD</div></div>
-              <div class="form-group"><label>Coût des ventes (COGS)</label><input type="number" id="m_cogs" placeholder="42.0"><div class="unit">MMAD</div></div>
-            </div>
-          </div>
-          <div class="form-section">
-            <div class="form-section-title">Charges</div>
-            <div class="form-grid">
-              <div class="form-group"><label>Charges d'exploitation</label><input type="number" id="m_opex" placeholder="12.0"><div class="unit">MMAD</div></div>
-              <div class="form-group"><label>Masse salariale</label><input type="number" id="m_salaries" placeholder="8.5"><div class="unit">MMAD</div></div>
-              <div class="form-group"><label>Amortissements (DAP)</label><input type="number" id="m_dap" placeholder="3.2"><div class="unit">MMAD</div></div>
-              <div class="form-group"><label>Charges financières</label><input type="number" id="m_interest" placeholder="1.8"><div class="unit">MMAD</div></div>
-              <div class="form-group"><label>Impôt sur les sociétés</label><input type="number" id="m_tax" placeholder="4.5"><div class="unit">MMAD</div></div>
-            </div>
-          </div>
-          <div class="form-section">
-            <div class="form-section-title">Bilan</div>
-            <div class="form-grid">
-              <div class="form-group"><label>Total actif</label><input type="number" id="m_assets" placeholder="220.0"><div class="unit">MMAD</div></div>
-              <div class="form-group"><label>Actif circulant</label><input type="number" id="m_cur_assets" placeholder="45.0"><div class="unit">MMAD</div></div>
-              <div class="form-group"><label>Passif circulant</label><input type="number" id="m_cur_liab" placeholder="28.0"><div class="unit">MMAD</div></div>
-              <div class="form-group"><label>Capitaux propres</label><input type="number" id="m_equity" placeholder="110.0"><div class="unit">MMAD</div></div>
-              <div class="form-group"><label>Dettes financières totales</label><input type="number" id="m_debt" placeholder="65.0"><div class="unit">MMAD</div></div>
-            </div>
-          </div>
-          <div class="form-section">
-            <div class="form-section-title">Trésorerie</div>
-            <div class="form-grid">
-              <div class="form-group"><label>Encaissements</label><input type="number" id="m_inflow" placeholder="95.0"><div class="unit">MMAD</div></div>
-              <div class="form-group"><label>Décaissements</label><input type="number" id="m_outflow" placeholder="88.0"><div class="unit">MMAD</div></div>
-              <div class="form-group"><label>Service de la dette</label><input type="number" id="m_debt_svc" placeholder="5.0"><div class="unit">MMAD</div></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Government form -->
-        <div id="formGovernment" style="display:none">
-          <div class="form-section">
-            <div class="form-section-title">Recettes</div>
-            <div class="form-grid">
-              <div class="form-group"><label>Recettes fiscales</label><input type="number" id="g_tax_rev" placeholder="180.0"><div class="unit">MMAD</div></div>
-              <div class="form-group"><label>Recettes non fiscales</label><input type="number" id="g_nontax_rev" placeholder="45.0"><div class="unit">MMAD</div></div>
-              <div class="form-group"><label>Subventions reçues</label><input type="number" id="g_grants" placeholder="120.0"><div class="unit">MMAD</div></div>
-            </div>
-          </div>
-          <div class="form-section">
-            <div class="form-section-title">Dépenses</div>
-            <div class="form-grid">
-              <div class="form-group"><label>Dépenses de fonctionnement</label><input type="number" id="g_recurrent" placeholder="240.0"><div class="unit">MMAD</div></div>
-              <div class="form-group"><label>Dépenses d'investissement</label><input type="number" id="g_capex" placeholder="80.0"><div class="unit">MMAD</div></div>
-              <div class="form-group"><label>Service de la dette</label><input type="number" id="g_debt_svc" placeholder="25.0"><div class="unit">MMAD</div></div>
-              <div class="form-group"><label>Subventions versées</label><input type="number" id="g_subsidies" placeholder="15.0"><div class="unit">MMAD</div></div>
-              <div class="form-group"><label>Masse salariale</label><input type="number" id="g_salaries" placeholder="130.0"><div class="unit">MMAD</div></div>
-            </div>
-          </div>
-          <div class="form-section">
-            <div class="form-section-title">Budget & Dette</div>
-            <div class="form-grid">
-              <div class="form-group"><label>Budget investissement approuvé</label><input type="number" id="g_inv_budget" placeholder="100.0"><div class="unit">MMAD</div></div>
-              <div class="form-group"><label>Investissement exécuté</label><input type="number" id="g_inv_exec" placeholder="80.0"><div class="unit">MMAD</div></div>
-              <div class="form-group"><label>Dette totale</label><input type="number" id="g_debt" placeholder="200.0"><div class="unit">MMAD</div></div>
-            </div>
-          </div>
-        </div>
-
-        <button class="btn-calculate" id="btnCalculate" onclick="calculateMetrics()">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-          Calculer les KPIs
-        </button>
-
-        <div class="results-panel" id="resultsPanel">
-          <div class="results-panel-header">
-            <h3>Résultats</h3>
-            <span id="healthBadge" class="health-badge"></span>
-          </div>
-          <div class="kpi-grid" id="kpiGrid"></div>
-          <div class="warnings-list" id="warningsList"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── SCENARIO VIEW ──────────────────────────────────────────────────── -->
-    <div class="view scenario-view" id="view-scenario">
-      <div class="view-content">
-        <div class="view-header">
-          <h2>Analyse de scénarios</h2>
-          <p>Projections sur 3 ans — Pessimiste / Réaliste / Optimiste. Calcul déterministe, aucun LLM.</p>
-        </div>
-
-        <div class="form-section">
-          <div class="form-section-title">Paramètres de base</div>
-          <div class="form-grid">
-            <div class="form-group">
-              <label>Type d'entité</label>
-              <select id="sc_entity">
-                <option value="corporate">Corporate</option>
-                <option value="government">Gouvernement</option>
-              </select>
-            </div>
-            <div class="form-group"><label>Revenus de base</label><input type="number" id="sc_revenue" placeholder="87.5"><div class="unit">MMAD</div></div>
-            <div class="form-group"><label>Charges de base</label><input type="number" id="sc_costs" placeholder="62.0"><div class="unit">MMAD</div></div>
-            <div class="form-group"><label>Trésorerie initiale</label><input type="number" id="sc_cash" placeholder="8.0"><div class="unit">MMAD</div></div>
-            <div class="form-group"><label>Dette totale</label><input type="number" id="sc_debt" placeholder="35.0"><div class="unit">MMAD</div></div>
-            <div class="form-group"><label>Service de la dette / an</label><input type="number" id="sc_debt_svc" placeholder="5.0"><div class="unit">MMAD</div></div>
-            <div class="form-group"><label>CAPEX annuel</label><input type="number" id="sc_capex" placeholder="4.0"><div class="unit">MMAD</div></div>
-          </div>
-          <button class="btn-calculate" onclick="runScenarios()" style="margin-top:16px">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
-            Lancer les scénarios
-          </button>
-        </div>
-
-        <div class="scenario-cards" id="scenarioCards" style="display:none"></div>
-      </div>
-    </div>
-
-    <!-- ── RAG VIEW ───────────────────────────────────────────────────────── -->
-    <div class="view rag-view" id="view-rag">
-      <div class="view-content">
-        <div class="view-header">
-          <h2>Base de connaissances</h2>
-          <p>Recherche sémantique dans vos documents financiers indexés (CGI 2025, Bulletin mensuel, etc.)</p>
-        </div>
-
-        <div class="rag-stats">
-          <div class="rag-stat">
-            <div class="rag-stat-val" id="ragChunks">—</div>
-            <div class="rag-stat-label">Chunks indexés</div>
-          </div>
-          <div class="rag-stat">
-            <div class="rag-stat-val" id="ragDocs">—</div>
-            <div class="rag-stat-label">Documents</div>
-          </div>
-          <div class="rag-stat">
-            <div class="rag-stat-val" id="ragStatus2">—</div>
-            <div class="rag-stat-label">Statut</div>
-          </div>
-        </div>
-
-        <div class="search-bar">
-          <input type="text" id="ragQuery" placeholder="Ex: taux IS impôt sociétés Maroc 2025..." onkeydown="if(event.key==='Enter')ragSearch()" />
-          <button class="btn-search" onclick="ragSearch()">Rechercher</button>
-          <button class="btn-ingest" onclick="ragIngest(false)">⬆ Indexer docs</button>
-          <button class="btn-ingest" onclick="ragIngest(true)" style="opacity:0.7">⟳ Forcer</button>
-        </div>
-
-        <div id="ragResults"></div>
-      </div>
+    <div class="typing hidden" id="typing">
+      <span></span><span></span><span></span>
     </div>
   </div>
+
+  <div class="state-bar" id="stateBar">
+    <span class="state-empty" id="stateEmpty">— aucune donnée collectée —</span>
+  </div>
+
+  <div class="input-area">
+    <textarea id="input" placeholder="Décrivez votre projet..." rows="1"
+      onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+    <button class="send" id="sendBtn" onclick="sendMessage()">envoyer →</button>
+  </div>
+
 </div>
-
-<div class="toast-container" id="toastContainer"></div>
-
 <script>
-// ── STATE ─────────────────────────────────────────────────────────────────
-const API = 'http://localhost:8000/api/v1';
-let sessionId = null;
-let currentEntity = 'corporate';
-let isLoading = false;
+  let sessionId = null, isLoading = false;
 
-// ── NAVIGATION ────────────────────────────────────────────────────────────
-function switchView(name, el) {
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  document.getElementById(`view-${name}`).classList.add('active');
-  el.classList.add('active');
-  const titles = { chat:'Chat Agent', metrics:'Calculateur de KPIs', scenario:'Analyse de Scénarios', rag:'Base de Connaissances' };
-  document.getElementById('topbarTitle').textContent = titles[name] || name;
-  if (name === 'rag') loadRagStatus();
-}
+  const PHASE_LABELS = {
+    welcome:'welcome', collecting:'collecte', awaiting_plan_confirm:'confirmation',
+    pre_creation:'pré-création', creation:'création', post_creation:'post-création',
+    ideation:'idéation', analysis:'analyse', unknown:'...'
+  };
+  const STATE_LABELS = {
+    entity_name:'entreprise', entity_type:'type', sector:'secteur',
+    statut_juridique:'statut', segment_client:'segment',
+    prix_vente_unitaire:'prix (MAD)', nb_clients_mois1:'clients M1',
+    taux_croissance_mensuel:'croissance %', loyer_mensuel:'loyer (MAD)',
+    salaires_equipe:'salaires (MAD)', investissements_initiaux:'invest. (MAD)'
+  };
 
-// ── CHAT ──────────────────────────────────────────────────────────────────
-function handleKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
-}
-function autoResize(el) {
-  el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 140) + 'px';
-}
-function sendQuick(msg) {
-  document.getElementById('messageInput').value = msg;
-  sendMessage();
-}
-
-async function sendMessage() {
-  const input = document.getElementById('messageInput');
-  const clientEmail = document.getElementById('clientEmail')?.value?.trim() || null;
-  const text = input.value.trim();
-  if (!text || isLoading) return;
-  isLoading = true;
-
-  document.getElementById('welcomeScreen')?.remove();
-  input.value = ''; input.style.height = 'auto';
-  document.getElementById('sendBtn').disabled = true;
-
-  appendMsg('user', text);
-  const typingEl = appendTyping();
-
-  try {
-    const payload = { 
-      session_id: sessionId, 
-      message: text,
-    };
-    if (clientEmail) payload.client_email = clientEmail;
-
-    const res = await fetch(`${API}/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) throw new Error(`Erreur serveur: ${res.status}`);
-    const data = await res.json();
-    sessionId = data.session_id;
-    typingEl.remove();
-    appendMsg('assistant', data.message, data.metrics_calculated, data.agent_mode, data.kpi_suggestions, data.kpi_details, data.action_items, data.metadata);
-    updateMode(data.agent_mode);
-  } catch (err) {
-    typingEl.remove();
-    appendMsg('assistant', `⚠ Impossible de joindre le serveur.\n\nLancez: \`uvicorn app.main:app --reload\`\n\nErreur: ${err.message}`);
-    toast('Serveur non disponible — localhost:8000', 'error');
-  } finally {
-    isLoading = false;
-    document.getElementById('sendBtn').disabled = false;
-    input.focus();
+  function apiUrl() {
+    return (document.getElementById('apiUrl').value || 'http://localhost:8000').replace(/\/$/,'');
   }
-}
 
-function appendMsg(role, text, metrics, mode, kpiSuggestions, kpiDetails, actionItems, metadata) {
-  const inner = document.getElementById('messagesInner');
+  async function checkConn() {
+    const dot = document.getElementById('connDot');
+    try {
+      const r = await fetch(apiUrl()+'/api/v1/health', {signal: AbortSignal.timeout(3000)});
+      dot.className = r.ok ? 'dot ok' : 'dot err';
+    } catch { dot.className = 'dot err'; }
+  }
+
+  document.getElementById('apiUrl').addEventListener('change', checkConn);
+  checkConn();
+
+  function useHint(el) {
+    const inp = document.getElementById('input');
+    inp.value = el.textContent; autoResize(inp); inp.focus();
+  }
+
+  function handleKey(e) {
+    if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  }
+
+  function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 120)+'px';
+  }
+
+  function setPhase(p) {
+    const b = document.getElementById('phaseBadge');
+    b.textContent = PHASE_LABELS[p] || p;
+    b.className = 'phase-badge'+(p!=='welcome'?' active':'');
+  }
+
+  function updateState(state) {
+    if (!state) return;
+    const bar = document.getElementById('stateBar');
+    const empty = document.getElementById('stateEmpty');
+    const filled = Object.entries(state).filter(([k,v]) => v!=null && v!=='' && k!=='months' && STATE_LABELS[k]).slice(0,8);
+    if (!filled.length) { empty.style.display=''; return; }
+    empty.style.display = 'none';
+    bar.querySelectorAll('.state-item').forEach(e=>e.remove());
+    filled.forEach(([k,v]) => {
+      const el = document.createElement('div');
+      el.className = 'state-item';
+      el.innerHTML = `<span class="key">${STATE_LABELS[k]}:</span><span class="val">${v}</span>`;
+      bar.appendChild(el);
+    });
+  }
+
+  function addMsg(role, text, mode) {
+  const w = document.getElementById('welcome');
+  if (w) w.style.display = 'none';
+
+  const msgs = document.getElementById('messages');
+  const typing = document.getElementById('typing');
+
   const div = document.createElement('div');
   div.className = `msg ${role}`;
 
-  const avatar = document.createElement('div');
-  avatar.className = 'msg-avatar';
-  avatar.textContent = role === 'user' ? 'V' : 'Fₙ';
+  const badge = mode ? `<span class="mode ${mode}">${mode}</span>` : '';
 
-  const bubble = document.createElement('div');
-  bubble.className = 'msg-bubble';
-  bubble.textContent = text;
-
-  if (metrics && Object.keys(metrics).length > 0) {
-    bubble.appendChild(buildMetricsCard(metrics));
-  }
-
-  // KPI Suggestions
-  if (kpiSuggestions && kpiSuggestions.length > 0) {
-    const sugDiv = document.createElement('div');
-    sugDiv.style.marginTop = '12px';
-    sugDiv.style.padding = '10px 12px';
-    sugDiv.style.background = 'var(--blue-dim)';
-    sugDiv.style.border = '1px solid rgba(96,165,250,0.2)';
-    sugDiv.style.borderRadius = 'var(--radius)';
-    sugDiv.innerHTML = `<div style="font-size:11px; color:var(--blue); font-weight:600; margin-bottom:6px">💡 Analyses suggérées:</div>
-      <div style="display:flex; flex-wrap:wrap; gap:6px">
-        ${kpiSuggestions.map(s => `<span style="background:rgba(96,165,250,0.15); padding:4px 8px; border-radius:6px; font-size:11px; color:var(--blue)">${s}</span>`).join('')}
-      </div>`;
-    bubble.appendChild(sugDiv);
-  }
-
-  // KPI Details with Explanations
-  if (kpiDetails && Object.keys(kpiDetails).length > 0) {
-    const kpiDiv = document.createElement('div');
-    kpiDiv.style.marginTop = '12px';
-    kpiDiv.style.padding = '10px 12px';
-    kpiDiv.style.background = 'var(--green-dim)';
-    kpiDiv.style.border = '1px solid rgba(62,207,142,0.2)';
-    kpiDiv.style.borderRadius = 'var(--radius)';
-    kpiDiv.innerHTML = `<div style="font-size:11px; color:var(--green); font-weight:600; margin-bottom:8px">📊 KPIs calculés:</div>`;
-    
-    Object.entries(kpiDetails).forEach(([name, data]) => {
-      const kpiRow = document.createElement('div');
-      kpiRow.style.marginBottom = '8px';
-      kpiRow.style.paddingBottom = '8px';
-      kpiRow.style.borderBottom = '1px solid rgba(62,207,142,0.1)';
-      kpiRow.style.fontSize = '11.5px';
-      kpiRow.innerHTML = `
-        <div style="color:var(--green); font-weight:600">${name}: <span style="color:var(--text-1)">${data.value} ${data.unit || ''}</span></div>
-        <div style="color:var(--text-3); font-size:10.5px; margin-top:2px; font-style:italic">${data.explanation || ''}</div>
-      `;
-      kpiDiv.appendChild(kpiRow);
-    });
-    bubble.appendChild(kpiDiv);
-  }
-
-  // Action Items
-  if (actionItems && actionItems.length > 0) {
-    const actionDiv = document.createElement('div');
-    actionDiv.style.marginTop = '12px';
-    actionDiv.style.padding = '10px 12px';
-    actionDiv.style.background = 'var(--amber)' ? 'rgba(251,191,36,0.12)' : '';
-    actionDiv.style.border = '1px solid rgba(251,191,36,0.2)';
-    actionDiv.style.borderRadius = 'var(--radius)';
-    actionDiv.innerHTML = `<div style="font-size:11px; color:var(--amber); font-weight:600; margin-bottom:6px">✓ Prochaines étapes:</div>
-      <ul style="margin:0; padding-left:16px; color:var(--text-2); font-size:11.5px">
-        ${actionItems.map(a => `<li style="margin-bottom:4px">${a}</li>`).join('')}
-      </ul>`;
-    bubble.appendChild(actionDiv);
-  }
-
-  // Metadata (LLM used, RAG confidence)
-  if (metadata && Object.keys(metadata).length > 0) {
-    const metaDiv = document.createElement('div');
-    metaDiv.style.marginTop = '10px';
-    metaDiv.style.paddingTop = '8px';
-    metaDiv.style.borderTop = '1px solid var(--border)';
-    metaDiv.style.fontSize = '10px';
-    metaDiv.style.color = 'var(--text-3)';
-    metaDiv.style.fontFamily = 'var(--font-mono)';
-    let metaText = '';
-    if (metadata.llm_used) metaText += `🤖 LLM: ${metadata.llm_used} · `;
-    if (metadata.rag_confidence !== undefined) metaText += `RAG conf: ${(metadata.rag_confidence * 100).toFixed(0)}%`;
-    metaDiv.textContent = metaText;
-    bubble.appendChild(metaDiv);
-  }
-
-  div.appendChild(avatar);
-  div.appendChild(bubble);
-  inner.appendChild(div);
-  scrollBottom();
-  return div;
-}
-
-function appendTyping() {
-  const inner = document.getElementById('messagesInner');
-  const div = document.createElement('div');
-  div.className = 'typing-indicator';
   div.innerHTML = `
-    <div class="msg-avatar" style="background:var(--bg-4);border:1px solid var(--border);font-family:var(--font-mono);font-size:10px;color:var(--text-2);width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px">Fₙ</div>
-    <div class="typing-dots"><span></span><span></span><span></span></div>`;
-  inner.appendChild(div);
-  scrollBottom();
-  return div;
+    <div class="msg-meta"><span class="who">${role==='user'?'vous':'agent'}</span>${badge}</div>
+    <div class="msg-text ${role==='user'?'user-text':''}">${esc(text)}</div>
+  `;
+
+  msgs.appendChild(div);
+
+  setTimeout(() => {
+    div.scrollIntoView({ behavior: "auto", block: "end" });
+  }, 0);
 }
 
-function buildMetricsCard(metrics) {
-  const skip = ['entity_type','warnings','health_score','statuses'];
-  const entries = Object.entries(metrics).filter(([k,v]) => !skip.includes(k) && v !== null && v !== undefined);
-  if (entries.length === 0) return document.createTextNode('');
-
-  const card = document.createElement('div');
-  card.className = 'metrics-card';
-  card.innerHTML = `<div class="metrics-card-header"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>KPIs calculés</div>`;
-
-  const grid = document.createElement('div');
-  grid.className = 'metrics-grid';
-
-  const fmt = (k, v) => {
-    if (typeof v === 'number') {
-      if (k.includes('_pct')) return v.toFixed(1) + '%';
-      if (k.includes('_mad_m')) return v.toFixed(2) + ' MM';
-      if (k.includes('ratio') || k.includes('coverage')) return v.toFixed(2) + 'x';
-      return v.toFixed(2);
-    }
-    return String(v);
-  };
-  const label = k => k.replace(/_/g,' ').replace('mad m','').replace('pct','').trim();
-  const colorClass = (k, v) => {
-    if (typeof v !== 'number') return '';
-    const good = ['gross_profit','ebitda','net_profit','roi','return_on','current_ratio','dscr','budget_execution'].some(p => k.includes(p));
-    const bad  = ['debt_to_equity','debt_to_revenue'].some(p => k.includes(p));
-    if (good) return v > 0 ? 'good' : 'down';
-    if (bad)  return v < 1 ? 'up' : v > 2 ? 'down' : '';
-    return '';
-  };
-
-  entries.slice(0, 12).forEach(([k, v]) => {
-    const cell = document.createElement('div');
-    cell.className = 'metric-cell';
-    cell.innerHTML = `<div class="metric-cell-label">${label(k)}</div><div class="metric-cell-value ${colorClass(k,v)}">${fmt(k,v)}</div>`;
-    grid.appendChild(cell);
-  });
-  card.appendChild(grid);
-
-  const health = metrics.health_score;
-  if (health) {
-    const cls = health.includes('✅') ? 'good' : health.includes('⚡') ? 'warn' : 'bad';
-    const badge = document.createElement('div');
-    badge.style.padding = '10px 14px';
-    badge.innerHTML = `<span class="health-badge ${cls}">${health}</span>`;
-    card.appendChild(badge);
+  function esc(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
-  return card;
-}
 
-function updateMode(mode) {
-  const chip = document.getElementById('modeChip');
-  const label = document.getElementById('modeLabel');
-  const map = { gathering_info:'gathering', analyzing:'analyzing', answering:'answering', off_topic:'answering' };
-  const txt = { gathering_info:'Collecte', analyzing:'Analyse', answering:'Réponse', off_topic:'Hors-sujet' };
-  chip.className = `mode-chip ${map[mode] || 'answering'}`;
-  chip.textContent = txt[mode] || mode;
-  chip.style.display = 'inline-flex';
-  label.style.display = 'inline';
-}
-
-function scrollBottom() {
-  const c = document.getElementById('messagesContainer');
-  requestAnimationFrame(() => { c.scrollTop = c.scrollHeight; });
-}
-
-function newChat() {
-  sessionId = null;
-  const inner = document.getElementById('messagesInner');
-  inner.innerHTML = `
-    <div class="welcome-screen" id="welcomeScreen">
-      <div class="welcome-icon">⚡</div>
-      <div class="welcome-title">Analyse financière <em>enterprise</em></div>
-      <div class="welcome-sub">Posez vos questions financières, partagez vos données, ou lancez une analyse complète.</div>
-      <div class="welcome-pills">
-        <div class="welcome-pill" onclick="sendQuick('Analyser les finances de mon entreprise')">🏢 Analyser mon entreprise</div>
-        <div class="welcome-pill" onclick="sendQuick('Analyser le budget d\\'une entité publique')">🏛 Budget entité publique</div>
-        <div class="welcome-pill" onclick="sendQuick('Notre CA est 45 MMAD, charges 32 MMAD, dette 12 MMAD')">📊 Données directes</div>
-        <div class="welcome-pill" onclick="sendQuick('Quels sont les benchmarks EBITDA au Maroc ?')">📈 Benchmarks</div>
-      </div>
-    </div>`;
-  document.getElementById('modeChip').style.display = 'none';
-  document.getElementById('modeLabel').style.display = 'none';
-  switchView('chat', document.querySelector('.nav-item'));
-}
-
-function clearSession() { sessionId = null; toast('Session effacée', 'success'); }
-
-// ── METRICS ───────────────────────────────────────────────────────────────
-function setEntity(type) {
-  currentEntity = type;
-  document.getElementById('formCorporate').style.display = type === 'corporate' ? '' : 'none';
-  document.getElementById('formGovernment').style.display = type === 'government' ? '' : 'none';
-  document.getElementById('btnCorporate').classList.toggle('active', type === 'corporate');
-  document.getElementById('btnGovernment').classList.toggle('active', type === 'government');
-}
-
-function g(id) { const v = document.getElementById(id)?.value; return v ? parseFloat(v) : undefined; }
-
-async function calculateMetrics() {
-  const btn = document.getElementById('btnCalculate');
-  btn.disabled = true;
-  btn.innerHTML = '<div class="spinner"></div> Calcul...';
-
-  let payload = { entity_type: currentEntity };
-  if (currentEntity === 'corporate') {
-    Object.assign(payload, {
-      total_revenue: g('m_total_revenue'), revenue_year2: g('m_revenue_year2'),
-      cost_of_goods_sold: g('m_cogs'), operating_expenses: g('m_opex'),
-      salaries_and_benefits: g('m_salaries'), depreciation_amortization: g('m_dap'),
-      interest_expense: g('m_interest'), tax_expense: g('m_tax'),
-      total_assets: g('m_assets'), current_assets: g('m_cur_assets'),
-      current_liabilities: g('m_cur_liab'), total_equity: g('m_equity'),
-      total_debt: g('m_debt'), cash_inflow: g('m_inflow'), cash_outflow: g('m_outflow'),
-      debt_service: g('m_debt_svc'),
-    });
-  } else {
-    Object.assign(payload, {
-      tax_revenue: g('g_tax_rev'), non_tax_revenue: g('g_nontax_rev'),
-      grants_and_transfers: g('g_grants'), recurrent_expenditure: g('g_recurrent'),
-      capital_expenditure: g('g_capex'), debt_service: g('g_debt_svc'),
-      subsidies_paid: g('g_subsidies'), salaries_and_benefits: g('g_salaries'),
-      investment_budget: g('g_inv_budget'), investment_executed: g('g_inv_exec'),
-      total_debt: g('g_debt'),
-    });
+  function setLoading(v) {
+    isLoading = v;
+    document.getElementById('typing').className = v ? 'typing' : 'typing hidden';
+    document.getElementById('sendBtn').disabled = v;
+    document.getElementById('messages').scrollTop = 9999;
   }
-  // Remove undefined
-  Object.keys(payload).forEach(k => payload[k] === undefined && delete payload[k]);
 
-  try {
-    const res = await fetch(`${API}/metrics/calculate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    renderMetricsResults(data);
-  } catch (err) {
-    toast('Erreur calcul: ' + err.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> Calculer les KPIs';
+  async function sendMessage() {
+    if (isLoading) return;
+    const inp = document.getElementById('input');
+    const text = inp.value.trim();
+    if (!text) return;
+    inp.value = ''; inp.style.height = 'auto';
+    addMsg('user', text);
+    setLoading(true);
+    try {
+      const body = { message: text };
+      if (sessionId) body.session_id = sessionId;
+      const res = await fetch(apiUrl()+'/api/v1/chat', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(30000)
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      const data = await res.json();
+      sessionId = data.session_id;
+      setPhase(data.current_phase || data.metadata?.phase || 'unknown');
+      if (data.business_state) updateState(data.business_state);
+      addMsg('agent', data.message || '(pas de réponse)', data.agent_mode);
+      document.getElementById('connDot').className = 'dot ok';
+    } catch(err) {
+      addMsg('agent', `Erreur: ${err.message}\n\nVérifiez que le serveur tourne sur ${apiUrl()}`, 'error');
+      document.getElementById('connDot').className = 'dot err';
+    } finally { setLoading(false); }
   }
-}
 
-function renderMetricsResults(data) {
-  const panel = document.getElementById('resultsPanel');
-  const grid = document.getElementById('kpiGrid');
-  const wlist = document.getElementById('warningsList');
-  const hbadge = document.getElementById('healthBadge');
-
-  panel.classList.add('visible');
-  grid.innerHTML = ''; wlist.innerHTML = '';
-
-  const skip = ['entity_type','warnings','health_score','statuses'];
-  const labels = {
-    total_revenue_mad_m:'Revenus totaux', revenue_growth_rate_pct:'Croissance revenus',
-    gross_profit_margin_pct:'Marge brute', ebitda_mad_m:'EBITDA', ebitda_margin_pct:'Marge EBITDA',
-    operating_margin_pct:'Marge opérat.', net_profit_mad_m:'Résultat net', net_profit_margin_pct:'Marge nette',
-    debt_to_equity:'D/E ratio', current_ratio:'Ratio courant', debt_service_coverage:'DSCR',
-    return_on_equity_pct:'ROE', return_on_assets_pct:'ROA', roi_pct:'ROI',
-    cash_flow_net_mad_m:'Cash flow net', free_cash_flow_mad_m:'FCF',
-    budget_execution_rate_pct:'Taux exécution', primary_balance_mad_m:'Solde primaire',
-    overall_balance_mad_m:'Solde global', fiscal_pressure_pct:'Pression fiscale',
-    salary_ratio_pct:'Ratio masse sal.', capex_ratio_pct:'Ratio CAPEX',
-  };
-  const fmt = (k, v) => {
-    if (k.includes('_pct')) return v?.toFixed(1) + '%';
-    if (k.includes('_mad_m')) return v?.toFixed(2) + ' MMAD';
-    if (k.includes('ratio') || k.includes('coverage') || k === 'debt_to_equity') return v?.toFixed(2) + 'x';
-    return v?.toFixed(2) ?? '—';
-  };
-  const cls = (k, v) => {
-    if (typeof v !== 'number') return '';
-    const goodKeys = ['margin','roi','return_on','current_ratio','coverage','budget_execution','cash_flow','free_cash'];
-    const badKeys  = ['debt_to_equity','debt_to_revenue'];
-    if (badKeys.some(p => k.includes(p))) return v > 3 ? 'down' : v > 2 ? 'neutral' : 'up';
-    if (goodKeys.some(p => k.includes(p))) return v >= 15 ? 'up' : v >= 5 ? '' : 'down';
-    return '';
-  };
-
-  Object.entries(data)
-    .filter(([k, v]) => !skip.includes(k) && v !== null && v !== undefined)
-    .forEach(([k, v]) => {
-      const tile = document.createElement('div');
-      tile.className = 'kpi-tile';
-      tile.innerHTML = `<div class="kpi-tile-label">${labels[k] || k.replace(/_/g,' ')}</div><div class="kpi-tile-val ${cls(k,v)}">${fmt(k,v)}</div>`;
-      grid.appendChild(tile);
-    });
-
-  const health = data.health_score || '';
-  const hcls = health.includes('✅') ? 'good' : health.includes('⚡') ? 'warn' : 'bad';
-  hbadge.className = `health-badge ${hcls}`;
-  hbadge.textContent = health || '—';
-
-  (data.warnings || []).forEach(w => {
-    const item = document.createElement('div');
-    item.className = 'warning-item';
-    item.innerHTML = `<span class="warning-icon">⚠</span><span>${w}</span>`;
-    wlist.appendChild(item);
-  });
-
-  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-// ── SCENARIOS ─────────────────────────────────────────────────────────────
-async function runScenarios() {
-  const payload = {
-    entity_type: document.getElementById('sc_entity').value,
-    starting_revenue: g('sc_revenue') || 87.5,
-    starting_costs: g('sc_costs') || 62.0,
-    starting_cash: g('sc_cash') || 8.0,
-    starting_debt: g('sc_debt') || 35.0,
-    debt_service_annual: g('sc_debt_svc') || 0,
-    capex_annual: g('sc_capex') || 0,
-    years: 3,
-  };
-
-  try {
-    const res = await fetch(`${API}/scenario/analyze`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    renderScenarios(data.scenarios || []);
-  } catch (err) {
-    toast('Erreur scénarios: ' + err.message, 'error');
+  function resetSession() {
+    sessionId = null;
+    location.reload();
   }
-}
-
-function renderScenarios(scenarios) {
-  const container = document.getElementById('scenarioCards');
-  container.style.display = 'grid';
-  container.innerHTML = '';
-  const colors = { Pessimiste:'pessimiste', Réaliste:'realiste', Optimiste:'optimiste' };
-  scenarios.forEach(sc => {
-    const s = sc.summary;
-    const a = sc.assumptions;
-    const yrs = sc.yearly_projections || [];
-    const card = document.createElement('div');
-    card.className = 'scenario-card';
-    card.innerHTML = `
-      <div class="scenario-card-head">
-        <span class="scenario-name ${colors[sc.name] || ''}">${sc.name}</span>
-        <span class="scenario-growth">+${a.revenue_growth_pct}% rev / +${a.cost_growth_pct}% coûts</span>
-      </div>
-      <div class="scenario-body">
-        ${yrs.map(yr => `
-          <div class="scenario-row">
-            <span class="scenario-row-label">An ${yr.year} CA</span>
-            <span class="scenario-row-val">${yr.revenue_mad_m?.toFixed(1)} MM</span>
-          </div>
-          <div class="scenario-row">
-            <span class="scenario-row-label">An ${yr.year} EBITDA</span>
-            <span class="scenario-row-val">${yr.ebitda_mad_m?.toFixed(1)} MM (${yr.ebitda_margin_pct?.toFixed(1)}%)</span>
-          </div>
-          <div class="scenario-row">
-            <span class="scenario-row-label">An ${yr.year} Tréso</span>
-            <span class="scenario-row-val" style="color:${yr.cumulative_cash_mad_m < 0 ? 'var(--red)' : 'var(--green)'}">${yr.cumulative_cash_mad_m?.toFixed(1)} MM</span>
-          </div>
-        `).join('')}
-        <div class="scenario-row" style="margin-top:6px;padding-top:10px;border-top:1px solid var(--border-act)">
-          <span class="scenario-row-label">Tréso négative</span>
-          <span class="scenario-row-val" style="color:var(--text-2)">${s.cash_negative_year}</span>
-        </div>
-      </div>`;
-    container.appendChild(card);
-  });
-}
-
-// ── RAG ───────────────────────────────────────────────────────────────────
-async function loadRagStatus() {
-  try {
-    const res = await fetch(`${API}/rag/status`);
-    const data = await res.json();
-    const dot = document.getElementById('ragDot');
-    const txt = document.getElementById('ragStatusText');
-    const badge = document.getElementById('ragBadge');
-
-    document.getElementById('ragChunks').textContent = data.total_chunks ?? '—';
-    document.getElementById('ragDocs').textContent = data.indexed_documents?.length ?? '—';
-    document.getElementById('ragStatus2').textContent = data.status === 'ready' ? '✅ Prêt' : '⚠ Vide';
-
-    if (data.status === 'ready') {
-      dot.classList.add('ready');
-      txt.textContent = `${data.total_chunks} chunks`;
-      badge.textContent = data.total_chunks;
-    } else {
-      txt.textContent = 'Aucun document';
-      badge.textContent = '0';
-    }
-  } catch {
-    document.getElementById('ragDot').classList.add('error');
-    document.getElementById('ragStatusText').textContent = 'Serveur offline';
-  }
-}
-
-async function ragSearch() {
-  const q = document.getElementById('ragQuery').value.trim();
-  if (!q) return;
-  const container = document.getElementById('ragResults');
-  container.innerHTML = '<div style="color:var(--text-3);font-size:13px;padding:12px 0">Recherche...</div>';
-  try {
-    const res = await fetch(`${API}/rag/search?query=${encodeURIComponent(q)}&top_k=5`);
-    const data = await res.json();
-    container.innerHTML = '';
-    if (!data.results?.length) {
-      container.innerHTML = '<div style="color:var(--text-3);font-size:13px;padding:12px 0">Aucun résultat. Avez-vous indexé des documents ?</div>';
-      return;
-    }
-    data.results.forEach(r => {
-      const div = document.createElement('div');
-      div.className = 'rag-result';
-      div.innerHTML = `
-        <div class="rag-result-header">
-          <span class="rag-result-source">${r.source || 'document'}</span>
-          <span class="rag-score">${(r.similarity * 100).toFixed(0)}% match</span>
-        </div>
-        <div class="rag-result-text">${r.text}</div>`;
-      container.appendChild(div);
-    });
-  } catch (err) {
-    container.innerHTML = `<div style="color:var(--red);font-size:13px">Erreur: ${err.message}</div>`;
-  }
-}
-
-async function ragIngest(force) {
-  toast(force ? 'Ré-indexation complète...' : 'Indexation en cours...', '');
-  try {
-    const res = await fetch(`${API}/rag/ingest${force ? '?force=true' : ''}`, { method: 'POST' });
-    const data = await res.json();
-    toast(data.message, 'success');
-    loadRagStatus();
-  } catch (err) {
-    toast('Erreur indexation: ' + err.message, 'error');
-  }
-}
-
-// ── EXAMPLES ──────────────────────────────────────────────────────────────
-function loadExample(type) {
-  switchView('chat', document.querySelector('.nav-item'));
-  const msgs = {
-    corporate: "Notre groupe industriel (agroalimentaire, Casablanca) a réalisé un CA de 87,5 MMAD. COGS: 42 MMAD, charges d'exploitation: 12 MMAD, masse salariale: 8,5 MMAD, DAP: 3,2 MMAD, charges financières: 1,8 MMAD, IS: 4,5 MMAD. Bilan: actif total 220 MMAD, actif circulant 45 MMAD, passif circulant 28 MMAD, capitaux propres 110 MMAD, dettes financières 65 MMAD.",
-    government: "Je représente une commune avec des recettes fiscales de 180 MMAD, recettes non fiscales 45 MMAD, subventions reçues 120 MMAD. Dépenses de fonctionnement: 240 MMAD, investissement: 80 MMAD, service de la dette: 25 MMAD. Budget investissement approuvé: 100 MMAD. Dette totale: 200 MMAD.",
-    startup: "Projet de consulting B2B à Casablanca (SARL, capital 50 000 MAD). Prix de vente: 2 500 MAD/client. 3 clients au démarrage, croissance mensuelle estimée à 8%, fidélisation 85%. Loyer 4 500 MAD/mois, salaires nets 18 000 MAD/mois, utilities 600 MAD, marketing 3 000 MAD. Investissement initial 45 000 MAD. Emprunt prévu: 100 000 MAD. Clients en B2B crédit 30 jours.",
-  };
-  document.getElementById('messageInput').value = msgs[type] || '';
-  document.getElementById('messageInput').focus();
-}
-
-// ── TOAST ─────────────────────────────────────────────────────────────────
-function toast(msg, type = '') {
-  const c = document.getElementById('toastContainer');
-  const t = document.createElement('div');
-  t.className = `toast ${type}`;
-  t.textContent = msg;
-  c.appendChild(t);
-  setTimeout(() => t.remove(), 3500);
-}
-
-// ── INIT ──────────────────────────────────────────────────────────────────
-loadRagStatus();
 </script>
 </body>
 </html>

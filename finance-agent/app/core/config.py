@@ -2,9 +2,15 @@
 core/config.py — All configuration from .env
 """
 from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 from pydantic_settings import BaseSettings
 from pydantic import Field
+
+# Always look for .env next to this file's package root (finance-agent/),
+# regardless of which directory uvicorn / pytest is launched from.
+_HERE = Path(__file__).resolve().parent          # app/core/
+_ENV_FILE = _HERE.parent.parent / ".env"         # finance-agent/.env
 
 
 class Settings(BaseSettings):
@@ -16,7 +22,7 @@ class Settings(BaseSettings):
 
     # Groq
     groq_api_key: str = Field(default="")
-    groq_model:   str = Field(default="llama3-70b-8192")
+    groq_model: str = Field(default="llama-3.3-70b-versatile")
 
     # Gemini (Fallback LLM)
     gemini_api_key: Optional[str] = Field(default=None)
@@ -42,7 +48,7 @@ class Settings(BaseSettings):
     allowed_origins: str = Field(default="*")
 
     model_config = {
-        "env_file": ".env",
+        "env_file": str(_ENV_FILE),
         "env_file_encoding": "utf-8",
         "extra": "ignore",
         "case_sensitive": False,

@@ -1,6 +1,5 @@
 """
 schemas/metrics.py — Enterprise financial metrics schemas.
-Replaces SaaS-specific MetricsInput/Output.
 All monetary values in MAD millions.
 """
 

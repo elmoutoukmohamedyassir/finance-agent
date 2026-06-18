@@ -6,6 +6,7 @@ only this file changes.
 """
 
 import logging
+from functools import lru_cache
 from typing import Optional
 
 from groq import Groq, APIError, APIConnectionError, RateLimitError
@@ -13,12 +14,17 @@ from groq import Groq, APIError, APIConnectionError, RateLimitError
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
 
 
 class GroqClient:
 
     def __init__(self):
+        settings = get_settings()
+        if not settings.groq_api_key:
+            raise RuntimeError(
+                "GROQ_API_KEY is not set. "
+                "Copy .env.example → .env and add your key from https://console.groq.com"
+            )
         self._client = Groq(api_key=settings.groq_api_key)
         self.model = settings.groq_model
 
@@ -68,5 +74,18 @@ class GroqClient:
         return messages
 
 
-# Module-level singleton — import this everywhere
-groq_client = GroqClient()
+@lru_cache(maxsize=1)
+def _get_groq_client() -> "GroqClient":
+    """Lazy singleton — created on first use, not at import time."""
+    return GroqClient()
+
+
+class _LazyGroqProxy:
+    """Proxy that defers GroqClient instantiation until first call.
+    Keeps the old ``groq_client.chat(...)`` call-sites working unchanged."""
+
+    def __getattr__(self, name):
+        return getattr(_get_groq_client(), name)
+
+
+groq_client = _LazyGroqProxy()

@@ -1,12 +1,5 @@
 """
 Phase 2: Data Collection Agent - Structured Q&A to gather financial data.
-
-When user is ready, this agent asks specific questions to gather:
-- Business basics (name, sector, structure)
-- Financial data (revenue model, costs, team)
-- Investment and capital information
-
-This feeds into Phase 3 analysis.
 """
 
 from app.agents.base_agent import BaseAgent, AgentMessage, AgentResponse
@@ -26,17 +19,13 @@ class Phase2DataCollectionAgent(BaseAgent):
     description = "Structured data collection for financial analysis"
 
     def process(self, message: AgentMessage) -> AgentResponse:
-        """
-        Guide structured data collection.
-        Maintains business_state in session and asks next question.
-        """
         try:
             if not message.session_id:
                 return self._make_error_response(message, "No session_id provided")
 
-            # Get or initialize business state from context
+            # Load Q&A tracking from session context (persisted via SQLite)
             business_state = message.context.get("business_state", {})
-            asked_questions = message.context.get("asked_questions", [])
+            asked_questions = list(message.context.get("asked_questions", []))
             pending_question = message.context.get("pending_question")
 
             # User is answering a question — extract data
@@ -48,7 +37,6 @@ class Phase2DataCollectionAgent(BaseAgent):
                 )
 
                 if validation_error:
-                    # Reprompt for this field
                     return AgentResponse(
                         agent_id=self.agent_id,
                         session_id=message.session_id,
@@ -62,7 +50,6 @@ class Phase2DataCollectionAgent(BaseAgent):
                         },
                     )
 
-                # Data extracted successfully — update state
                 if extracted:
                     business_state.update(extracted)
 
@@ -92,7 +79,6 @@ class Phase2DataCollectionAgent(BaseAgent):
             )
 
             if not next_field:
-                # No more questions — ready for analysis
                 return AgentResponse(
                     agent_id=self.agent_id,
                     session_id=message.session_id,
@@ -106,7 +92,6 @@ class Phase2DataCollectionAgent(BaseAgent):
                     },
                 )
 
-            # Ask the next question with context
             asked_questions.append(next_field)
             context_text = FIELD_CONTEXT_FR.get(next_field, "")
             question_full = f"{next_question}\n\n_({context_text})_"
@@ -130,11 +115,9 @@ class Phase2DataCollectionAgent(BaseAgent):
             return self._make_error_response(message, str(e))
 
     def can_handle(self, intent: str) -> bool:
-        """Handle data collection and questions."""
         return intent in ("collect_data", "answer_question", "continue_collection")
 
     def _is_minimum_data_collected(self, business_state: dict) -> bool:
-        """Check if minimum required fields are filled."""
         minimum_fields = {
             "entity_type", "segment_client", "prix_vente_unitaire",
             "nb_clients_mois1", "taux_croissance_mensuel",

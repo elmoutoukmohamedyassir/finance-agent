@@ -1,8 +1,5 @@
 """
 Phase 1: Ideation Agent - ChatGPT-style conversation about business ideas.
-
-User has an idea, no business yet. Natural conversation to understand their concept,
-validate feasibility from a finance perspective, and decide when to move to Phase 2.
 """
 
 from app.agents.base_agent import BaseAgent, AgentMessage, AgentResponse
@@ -44,9 +41,6 @@ class Phase1IdeationAgent(BaseAgent):
     description = "Chat agent for business ideation and feasibility discussion"
 
     def process(self, message: AgentMessage) -> AgentResponse:
-        """
-        Handle natural conversation about business ideas.
-        """
         try:
             if not message.user_message:
                 return AgentResponse(
@@ -57,16 +51,16 @@ class Phase1IdeationAgent(BaseAgent):
                     error="No user message provided",
                 )
 
-            # Call Groq for natural conversation
+            # Call Groq with conversation history so the AI remembers context
+            conversation_history = message.context.get("conversation_history", [])
             llm_response = groq_client.chat(
                 system_prompt=PHASE1_SYSTEM_PROMPT,
                 user_message=message.user_message,
-                temperature=0.7,  # More natural, conversational tone
+                conversation_history=conversation_history,
+                temperature=0.7,
                 max_tokens=400,
             )
 
-            # Check if user seems ready to move to Phase 2
-            # (mentioned concrete numbers, asked about financial analysis, etc.)
             should_advance = self._check_readiness_for_phase2(message.user_message)
 
             return AgentResponse(
@@ -87,17 +81,9 @@ class Phase1IdeationAgent(BaseAgent):
             return self._make_error_response(message, str(e))
 
     def can_handle(self, intent: str) -> bool:
-        """Handle ideation and early-stage business questions."""
         return intent in ("ideation", "idea_validation", "chat")
 
     def _check_readiness_for_phase2(self, user_message: str) -> bool:
-        """
-        Detect if user is ready to move to Phase 2 (data collection).
-        Triggers if they mention:
-        - Concrete numbers (revenue, costs, team size)
-        - Want detailed analysis
-        - Have a business name/sector
-        """
         lower = user_message.lower()
         keywords = [
             "analyser", "analyze", "calculer", "calculate", "chiffre",

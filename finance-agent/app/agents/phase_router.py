@@ -1,7 +1,5 @@
 """
 Phase Router - Orchestrates multi-phase system.
-
-Determines which phase the user is in and routes to the correct agent.
 """
 
 from app.agents.phase1_ideation_agent import Phase1IdeationAgent
@@ -28,24 +26,26 @@ class PhaseRouter:
         Returns: "phase1" | "phase2" | "phase3" | "phase4"
         """
         business_state = session_context.get("business_state", {})
-        
+
         # Phase 4: Post-creation (if business is created)
         if business_state.get("is_created"):
             return "phase4"
-        
-        # Phase 3: Ready for analysis (has minimum data)
+
+        # Phase 3: Ready for analysis (minimum fields with actual non-None values)
         minimum_fields = {
             "entity_type", "segment_client", "prix_vente_unitaire",
             "nb_clients_mois1", "taux_croissance_mensuel",
             "loyer_mensuel", "salaires_equipe", "investissements_initiaux",
         }
-        if minimum_fields.issubset(set(business_state.keys())):
+        # Only count fields that have actual non-None, non-empty values
+        filled_fields = {k for k, v in business_state.items() if v is not None and v != ""}
+        if minimum_fields.issubset(filled_fields):
             return "phase3"
-        
-        # Phase 2: In data collection
-        if session_context.get("in_collection") or business_state:
+
+        # Phase 2: Only when explicitly flagged — never default into it
+        if session_context.get("in_collection"):
             return "phase2"
-        
+
         # Phase 1: Ideation (default)
         return "phase1"
 
@@ -54,13 +54,11 @@ class PhaseRouter:
         Route message to appropriate phase agent.
         """
         current_phase = self.get_current_phase(session_context)
-        
+
         try:
             if current_phase == "phase1":
-                # Check if user wants to move to Phase 2
                 response = self.phase1.process(message)
                 if response.structured_output and response.structured_output.get("ready_for_phase2"):
-                    # Transition to Phase 2
                     message.context["in_collection"] = True
                     session_context["phase"] = "phase2"
                     response.message += "\n\nProchaine étape: Je vais poser des questions spécifiques pour affiner l'analyse."
@@ -73,7 +71,6 @@ class PhaseRouter:
                 return self.phase3.process(message)
 
             elif current_phase == "phase4":
-                # Phase 4: Ongoing support (future)
                 return AgentResponse(
                     agent_id="phase4_ongoing",
                     session_id=message.session_id,
