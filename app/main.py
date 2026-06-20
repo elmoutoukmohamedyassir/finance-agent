@@ -5,11 +5,13 @@ main.py — FastAPI application entry point.
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
 
-from app.api.routers import chat, metrics, scenario, rag
+from app.api.routers import auth, chat, metrics, scenario, rag
 from app.core.config import get_settings
+from app.database.db import get_db
 from app.services.session_service import get_session_count
 
 logging.basicConfig(
@@ -65,6 +67,7 @@ app.add_middleware(
 )
 
 PREFIX = "/api/v1"
+app.include_router(auth.router, prefix=PREFIX)
 app.include_router(chat.router, prefix=PREFIX)
 app.include_router(metrics.router, prefix=PREFIX)
 app.include_router(scenario.router, prefix=PREFIX)
@@ -72,17 +75,17 @@ app.include_router(rag.router, prefix=PREFIX)
 
 
 @app.get("/", tags=["Health"])
-def root():
+def root(db: Session = Depends(get_db)):
     return {
         "status": "running",
         "version": "2.0.0",
         "docs": "/docs",
-        "active_sessions": get_session_count(),
+        "active_sessions": get_session_count(db),
     }
 
 
 @app.get("/api/v1/health", tags=["Health"])
-def health():
+def health(db: Session = Depends(get_db)):
     from app.rag.ingestion import get_chroma_collection
     try:
         col = get_chroma_collection()
@@ -97,5 +100,5 @@ def health():
         "llm": {"provider": "groq", "model": settings.groq_model},
         "embedder": {"backend": settings.embedding_backend, "model": settings.embedding_model},
         "rag": {"status": rag_status, "chunks": chunks},
-        "sessions": {"active": get_session_count()},
+        "sessions": {"active": get_session_count(db)},
     }

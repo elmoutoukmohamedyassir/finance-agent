@@ -88,3 +88,64 @@ def bulk_create_kpis(
         )
         snapshots.append(snapshot)
     return snapshots
+
+
+# kpi_name -> (unit, short explanation). Used by save_kpis_from_computed()
+# below to turn the engine's raw numbers into self-describing snapshot rows.
+_KPI_DEFINITIONS = {
+    "seuil_rentabilite_clients": ("clients/mois", "Nombre de clients mensuels nécessaires pour couvrir les charges fixes."),
+    "seuil_rentabilite_ca":      ("MAD", "Chiffre d'affaires mensuel minimum pour atteindre l'équilibre."),
+    "bfr":                       ("MAD", "Besoin en fonds de roulement — trésorerie à immobiliser pour financer le cycle d'exploitation."),
+    "taux_marge_brute":          ("%", "Part du chiffre d'affaires conservée après coûts variables."),
+    "marge_brute_unitaire":      ("MAD", "Marge brute générée par unité vendue."),
+    "charges_fixes_mensuelles_totales": ("MAD", "Total des charges fixes mensuelles (loyer, salaires, etc.)."),
+    "mois_point_mort":           ("mois", "Mois où la trésorerie cumulée devient positive."),
+    "roi_annee1":                ("%", "Retour sur investissement sur la première année."),
+    "roi_annee2":                ("%", "Retour sur investissement sur la deuxième année."),
+    "dscr_annee1":               ("x", "Capacité de l'entreprise à couvrir le service de la dette (Année 1)."),
+}
+
+
+def save_kpis_from_computed(
+    db: Session,
+    client_id: str,
+    session_id: str,
+    computed,  # tools.plan_pipeline.ComputedPlan
+) -> List[KPISnapshot]:
+    """
+    Bridge between the deterministic engine (DerivedVariables +
+    BusinessPlan24M, see tools/hypothesis_ingestor.py and
+    tools/plan_generator.py) and bulk_create_kpis() above.
+
+    Pulls a curated set of named KPIs off computed.derived and
+    computed.plan, skips any that the engine couldn't compute (None —
+    e.g. dscr_annee1 with no debt), and stores the rest as KPISnapshot
+    rows. calculation_type is always "automatic" since these come
+    straight out of the engine, never user-entered.
+    """
+    derived, plan = computed.derived, computed.plan
+    raw_values = {
+        "seuil_rentabilite_clients": getattr(derived, "seuil_rentabilite_clients", None),
+        "seuil_rentabilite_ca":      getattr(derived, "seuil_rentabilite_ca", None),
+        "bfr":                       getattr(derived, "bfr", None),
+        "taux_marge_brute":          getattr(derived, "taux_marge_brute", None),
+        "marge_brute_unitaire":      getattr(derived, "marge_brute_unitaire", None),
+        "charges_fixes_mensuelles_totales": getattr(derived, "charges_fixes_mensuelles_totales", None),
+        "mois_point_mort":           plan.mois_point_mort,
+        "roi_annee1":                plan.roi_annee1,
+        "roi_annee2":                plan.roi_annee2,
+        "dscr_annee1":               plan.dscr_annee1,
+    }
+
+    kpis = [
+        {
+            "kpi_name": name,
+            "value": float(value),
+            "unit": _KPI_DEFINITIONS[name][0],
+            "explanation": _KPI_DEFINITIONS[name][1],
+            "calculation_type": "automatic",
+        }
+        for name, value in raw_values.items()
+        if value is not None
+    ]
+    return bulk_create_kpis(db, client_id, session_id, kpis)
