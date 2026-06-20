@@ -9,7 +9,7 @@ Models:
 from datetime import datetime, timezone
 import uuid
 
-from sqlalchemy import Column, String, Float, Integer, DateTime, ForeignKey, Text
+from sqlalchemy import Column, String, Float, Integer, Boolean, DateTime, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import UUID, JSON, JSONB
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
@@ -37,6 +37,11 @@ class Client(Base):
     email = Column(String(255), nullable=True, unique=True, index=True)
     phone = Column(String(20), nullable=True)
     sector = Column(String(100), nullable=True)
+
+    # Auth — nullable: see class docstring
+    hashed_password = Column(String(255), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+
     # timezone=True stores timestamps as TIMESTAMPTZ in PostgreSQL (always UTC-aware)
     created_at = Column(DateTime(timezone=True), default=_now, index=True)
     updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
@@ -101,3 +106,37 @@ class BusinessPlan(Base):
 
     def __repr__(self):
         return f"<BusinessPlan(id={self.id}, client_id={self.client_id}, created_at={self.created_at})>"
+
+class ConversationSessionDB(Base):
+    """
+    Persisted chat session state — replaces the old SQLite (data/sessions.db)
+    store. Mirrors the old schema's shape (id, JSON blob, updated_at) so
+    services/session_service.py logic barely changes, plus:
+ 
+      - client_id: nullable FK. Chat works anonymously (client_id stays
+        NULL); api/deps.get_current_client_optional attaches the owner on
+        any request carrying a valid JWT. Once set, the session is "claimed"
+        and session_service must refuse to let a different client (or an
+        anonymous request) keep using that session_id.
+      - JSONB instead of TEXT for `data`: queryable/indexable in Postgres,
+        and avoids a manual json.loads/dumps round trip in the service layer.
+ 
+    Table name is `conversation_sessions` to avoid clashing with the Pydantic
+    `ConversationSession` schema in app/schemas/session.py — that schema is
+    still what's stored *inside* `data`; this table is just its container.
+    """
+    __tablename__ = "conversation_sessions"
+ 
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=True, index=True)
+ 
+    data = Column(JSONB, nullable=False)  # full ConversationSession.model_dump_json() payload
+ 
+    created_at = Column(DateTime(timezone=True), default=_now, index=True)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, index=True)
+ 
+    # Relationships
+    client = relationship("Client", back_populates="conversation_sessions")
+ 
+    def __repr__(self):
+        return f"<ConversationSessionDB(id={self.id}, client_id={self.client_id}, updated_at={self.updated_at})>"

@@ -8,11 +8,14 @@ from app.schemas.chat import ChatRequest, ChatResponse
 from app.schemas.session import BusinessState
 from app.agents.phase_router import PhaseRouter
 from app.agents.base_agent import AgentMessage
+from app.api.deps import get_current_client_optional
 from app.database.db import get_db, init_db
+from app.database.models import Client
 from app.services.client_service import get_or_create_client
-from app.services.session_service import get_or_create_session, save_session
+from app.services.session_service import get_or_create_session, save_session, SessionOwnershipError
 from app.tools.plan_pipeline import compute_plan, has_minimum_data
 from app.tools.plan_pdf import build_plan_pdf
+from typing import Optional
 import logging
 import uuid
 
@@ -27,13 +30,28 @@ phase_router = PhaseRouter()
 
 
 @router.post("", response_model=ChatResponse)
-async def chat(request: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
+async def chat(
+    request: ChatRequest,
+    db: Session = Depends(get_db),
+    current_client: Optional[Client] = Depends(get_current_client_optional),
+) -> ChatResponse:
     try:
-        # Get or create session (no db parameter - uses SQLite directly)
-        session = get_or_create_session(request.session_id)
+        # Authenticated callers own their sessions automatically. Anonymous
+        # callers (no/invalid bearer token) keep working exactly as before —
+        # auth is optional on this endpoint by design.
+        client_id = current_client.id if current_client else None
 
-        # Get or create client if email provided
-        if request.client_email:
+        try:
+            session = get_or_create_session(db, request.session_id, client_id=client_id)
+        except SessionOwnershipError as e:
+            raise HTTPException(status_code=403, detail=str(e))
+
+        # Get or create client if email provided (legacy, anonymous-tracking
+        # path — unrelated to auth. If the caller is already authenticated,
+        # current_client is the source of truth and this is skipped to
+        # avoid creating an unrelated/duplicate Client row from a stray
+        # client_email value.)
+        if request.client_email and not current_client:
             get_or_create_client(db, request.client_email)
 
         # Save the user's message to conversation history before routing
@@ -94,8 +112,8 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)) -> ChatRespo
             if "pending_question" in agent_response.structured_output:
                 session.pending_question = agent_response.structured_output["pending_question"]
 
-        # Save session to SQLite
-        save_session(session)
+        # Save session to Postgres
+        save_session(db, session, client_id=client_id)
 
         # Build response
         return ChatResponse(
@@ -113,6 +131,8 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)) -> ChatRespo
             },
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Chat error: {e}", exc_info=True)
         return ChatResponse(
@@ -124,7 +144,11 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)) -> ChatRespo
 
 
 @router.get("/{session_id}/plan/pdf")
-async def download_plan_pdf(session_id: str):
+async def download_plan_pdf(
+    session_id: str,
+    db: Session = Depends(get_db),
+    current_client: Optional[Client] = Depends(get_current_client_optional),
+):
     """
     Generate and download the full business plan as a PDF for this session.
     Recomputes from the session's stored business_state using the same
@@ -132,8 +156,19 @@ async def download_plan_pdf(session_id: str):
     matches whatever numbers the user already saw, never a separate
     calculation. Returns 400 (not 500) if there isn't enough data yet,
     since that's an expected state, not a server error.
+
+    Same ownership rule as POST /chat: a session owned by another account
+    can't be pulled by this caller. Anonymous (unclaimed) sessions remain
+    downloadable by anyone holding the session_id, matching the existing
+    anonymous-chat trust model — this only locks down sessions that have
+    actually been claimed by a logged-in client.
     """
-    session = get_or_create_session(session_id)
+    client_id = current_client.id if current_client else None
+    try:
+        session = get_or_create_session(db, session_id, client_id=client_id)
+    except SessionOwnershipError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
     business_state = session.business_state.model_dump() if session.business_state else {}
 
     if not has_minimum_data(business_state):

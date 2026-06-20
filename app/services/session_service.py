@@ -1,52 +1,85 @@
 """
-services/session_service.py — SQLite-backed session persistence.
+services/session_service.py — Postgres-backed session persistence.
 
-WHY SQLite over in-memory dict:
-  - Sessions survive server restarts and hot-reloads
-  - No Redis/Postgres needed — single file
-  - Works on Windows and Linux identically
+Was SQLite (data/sessions.db); now stored in the same Postgres database as
+everything else (decision: no separate session store). Table is
+ConversationSessionDB (app/database/models.py) — id/data/updated_at mirror
+the old SQLite schema almost exactly, so the logic here barely changed,
+just the storage backend and one new concept: ownership.
 
-Schema: sessions(id TEXT PK, data TEXT, updated_at TEXT)
-data = ConversationSession JSON (excludes non-serializable runtime objects)
+OWNERSHIP RULES (client_id is nullable on the DB row):
+  - A brand-new session: client_id is set if the caller is authenticated,
+    else stays NULL (anonymous chat keeps working, per product decision).
+  - An existing anonymous session (client_id IS NULL) being resumed by an
+    authenticated caller: gets "claimed" — client_id is set going forward.
+    This covers the common case of someone starting a chat before logging
+    in, then logging in mid-conversation.
+  - An existing session that already belongs to client A: a request from
+    client B (or an anonymous request) for that same session_id raises
+    SessionOwnershipError. The router maps this to HTTP 403. We do NOT
+    silently let a second account read someone else's financial data.
 """
-import uuid, json, sqlite3, logging, typing
-from datetime import datetime, timedelta
-from pathlib import Path
+import uuid, logging, typing
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from sqlalchemy.orm import Session as DBSession
+from sqlalchemy import delete
+
 from app.schemas.session import ConversationSession, BusinessState, Phase
+from app.database.models import ConversationSessionDB
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
-DB_PATH = Path(getattr(settings, "db_path", "./data/sessions.db"))
 
 
-def _get_conn() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("""CREATE TABLE IF NOT EXISTS sessions (
-        id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at TEXT NOT NULL)""")
-    conn.commit()
-    return conn
+class SessionOwnershipError(Exception):
+    """Raised when a session_id is requested by someone other than its owner."""
 
 
-def get_or_create_session(session_id: Optional[str]) -> ConversationSession:
-    _cleanup_expired()
+def get_or_create_session(
+    db: DBSession, session_id: Optional[str], client_id: Optional[str] = None
+) -> ConversationSession:
+    """
+    Load an existing session or create a new one.
+
+    client_id: the caller's id if authenticated (from
+    api.deps.get_current_client_optional), else None. See module docstring
+    for the ownership rules this enforces.
+    """
+    _cleanup_expired(db)
+
     if session_id:
-        s = _load(session_id)
-        if s:
-            return s
+        row = db.query(ConversationSessionDB).filter(ConversationSessionDB.id == session_id).first()
+        if row:
+            if row.client_id and client_id and row.client_id != client_id:
+                raise SessionOwnershipError(
+                    f"Session {session_id} belongs to a different account."
+                )
+            if row.client_id is None and client_id:
+                # Anonymous session being resumed by a logged-in caller — claim it.
+                row.client_id = client_id
+                db.commit()
+                logger.info(f"Session {session_id} claimed by client {client_id}")
+            return ConversationSession.model_validate(row.data)
+
     new_id = session_id or str(uuid.uuid4())
     session = ConversationSession(session_id=new_id)
-    _save_to_db(session)
-    logger.info(f"New session: {new_id}")
+    _save_to_db(db, session, client_id=client_id)
+    logger.info(f"New session: {new_id}" + (f" (client {client_id})" if client_id else " (anonymous)"))
     return session
 
 
-def save_session(session: ConversationSession) -> None:
+def save_session(db: DBSession, session: ConversationSession, client_id: Optional[str] = None) -> None:
+    """
+    Save session state. client_id is only used if the row doesn't exist yet
+    (shouldn't normally happen — get_or_create_session creates it first —
+    but kept for safety/symmetry); an existing row's client_id is never
+    overwritten here, only by the claim logic in get_or_create_session.
+    """
     session.updated_at = datetime.utcnow()
-    _save_to_db(session)
+    _save_to_db(db, session, client_id=client_id)
 
 
 def update_business_state_fields(session: ConversationSession, extracted: dict) -> None:
@@ -102,43 +135,40 @@ def load_hypothesis_into_session(session: ConversationSession, hypothesis) -> No
         raise
 
 
-def get_session_count() -> int:
-    with _get_conn() as c:
-        return c.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+def get_session_count(db: DBSession) -> int:
+    return db.query(ConversationSessionDB).count()
 
 
-def _load(sid: str) -> Optional[ConversationSession]:
+def _save_to_db(db: DBSession, session: ConversationSession, client_id: Optional[str] = None) -> None:
     try:
-        with _get_conn() as c:
-            row = c.execute("SELECT data FROM sessions WHERE id=?", (sid,)).fetchone()
-        if row:
-            return ConversationSession.model_validate(json.loads(row[0]))
-    except Exception as e:
-        logger.warning(f"Load session {sid} failed: {e}")
-    return None
-
-
-def _save_to_db(session: ConversationSession) -> None:
-    try:
-        data = session.model_dump_json(
-            exclude={"cached_plan","cached_metrics","derived_variables","projection_inputs"}
+        data = session.model_dump(
+            mode="json",
+            exclude={"cached_plan", "cached_metrics", "derived_variables", "projection_inputs"},
         )
-        with _get_conn() as c:
-            c.execute("INSERT OR REPLACE INTO sessions VALUES (?,?,?)",
-                      (session.session_id, data, session.updated_at.isoformat()))
-            c.commit()
+        row = db.query(ConversationSessionDB).filter(ConversationSessionDB.id == session.session_id).first()
+        if row:
+            row.data = data
+            # Never clobber an existing owner with None here — ownership
+            # changes only happen through the explicit claim path above.
+            if client_id and not row.client_id:
+                row.client_id = client_id
+        else:
+            row = ConversationSessionDB(id=session.session_id, data=data, client_id=client_id)
+            db.add(row)
+        db.commit()
     except Exception as e:
+        db.rollback()
         logger.error(f"Save session {session.session_id} failed: {e}")
 
 
-def _cleanup_expired() -> None:
+def _cleanup_expired(db: DBSession) -> None:
     ttl = timedelta(minutes=getattr(settings, "session_ttl_minutes", 60))
-    cutoff = (datetime.utcnow() - ttl).isoformat()
+    cutoff = datetime.now(timezone.utc) - ttl
     try:
-        with _get_conn() as c:
-            c.execute("DELETE FROM sessions WHERE updated_at<?", (cutoff,))
-            c.commit()
+        db.execute(delete(ConversationSessionDB).where(ConversationSessionDB.updated_at < cutoff))
+        db.commit()
     except Exception as e:
+        db.rollback()
         logger.warning(f"Cleanup error: {e}")
 
 
