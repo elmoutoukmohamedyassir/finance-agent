@@ -61,6 +61,11 @@
   button.send:disabled { opacity: 0.3; cursor: default; }
   .reset-btn { font-family: var(--mono); font-size: 11px; color: var(--text-dim); background: none; border: none; cursor: pointer; padding: 2px 0; transition: color 0.15s; }
   .reset-btn:hover { color: var(--text-muted); }
+  .pdf-download { display: inline-flex; align-items: center; gap: 6px; margin-top: 14px; background: var(--accent-dim); border: 1px solid var(--accent-border); color: var(--accent); font-family: var(--mono); font-size: 12px; padding: 8px 14px; border-radius: var(--radius); cursor: pointer; transition: opacity 0.15s, transform 0.1s; }
+  .pdf-download:hover { opacity: 0.85; }
+  .pdf-download:active { transform: scale(0.97); }
+  .pdf-download:disabled { opacity: 0.4; cursor: default; }
+  .pdf-download svg { width: 13px; height: 13px; flex-shrink: 0; }
   .welcome { padding: 48px 24px 32px; border-bottom: 1px solid var(--border); }
   .welcome h1 { font-family: var(--mono); font-size: 22px; font-weight: 500; color: var(--text); margin-bottom: 8px; }
   .welcome h1 span { color: var(--accent); }
@@ -192,7 +197,7 @@
     });
   }
 
-  function addMsg(role, text, mode) {
+  function addMsg(role, text, mode, canDownloadPdf) {
   const w = document.getElementById('welcome');
   if (w) w.style.display = 'none';
 
@@ -203,10 +208,16 @@
   div.className = `msg ${role}`;
 
   const badge = mode ? `<span class="mode ${mode}">${mode}</span>` : '';
+  const pdfBtn = canDownloadPdf ? `
+    <button class="pdf-download" onclick="downloadPlanPdf(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg>
+      télécharger le plan financier (PDF)
+    </button>` : '';
 
   div.innerHTML = `
     <div class="msg-meta"><span class="who">${role==='user'?'vous':'agent'}</span>${badge}</div>
     <div class="msg-text ${role==='user'?'user-text':''}">${esc(text)}</div>
+    ${pdfBtn}
   `;
 
   msgs.appendChild(div);
@@ -249,12 +260,46 @@
       sessionId = data.session_id;
       setPhase(data.current_phase || data.metadata?.phase || 'unknown');
       if (data.business_state) updateState(data.business_state);
-      addMsg('agent', data.message || '(pas de réponse)', data.agent_mode);
+      addMsg('agent', data.message || '(pas de réponse)', data.agent_mode, !!data.metrics_calculated);
       document.getElementById('connDot').className = 'dot ok';
     } catch(err) {
       addMsg('agent', `Erreur: ${err.message}\n\nVérifiez que le serveur tourne sur ${apiUrl()}`, 'error');
       document.getElementById('connDot').className = 'dot err';
     } finally { setLoading(false); }
+  }
+
+  async function downloadPlanPdf(btn) {
+    if (!sessionId) return;
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = 'génération du PDF...';
+    try {
+      const res = await fetch(apiUrl()+'/api/v1/chat/'+sessionId+'/plan/pdf', {
+        signal: AbortSignal.timeout(20000)
+      });
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`;
+        try { detail = (await res.json()).detail || detail; } catch {}
+        throw new Error(detail);
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition') || '';
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      const filename = match ? match[1] : 'business_plan.pdf';
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      addMsg('agent', `Impossible de générer le PDF : ${err.message}`, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = original;
+    }
   }
 
   function resetSession() {

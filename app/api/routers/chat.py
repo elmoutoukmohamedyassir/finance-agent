@@ -1,5 +1,8 @@
 """api/routers/chat.py"""
-from fastapi import APIRouter, Depends
+import re
+
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.schemas.session import BusinessState
@@ -8,6 +11,8 @@ from app.agents.base_agent import AgentMessage
 from app.database.db import get_db, init_db
 from app.services.client_service import get_or_create_client
 from app.services.session_service import get_or_create_session, save_session
+from app.tools.plan_pipeline import compute_plan, has_minimum_data
+from app.tools.plan_pdf import build_plan_pdf
 import logging
 import uuid
 
@@ -116,3 +121,45 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)) -> ChatRespo
             agent_mode="error",
             metadata={"error": str(e)},
         )
+
+
+@router.get("/{session_id}/plan/pdf")
+async def download_plan_pdf(session_id: str):
+    """
+    Generate and download the full business plan as a PDF for this session.
+    Recomputes from the session's stored business_state using the same
+    tools.plan_pipeline logic Phase 3 uses in chat — so the PDF always
+    matches whatever numbers the user already saw, never a separate
+    calculation. Returns 400 (not 500) if there isn't enough data yet,
+    since that's an expected state, not a server error.
+    """
+    session = get_or_create_session(session_id)
+    business_state = session.business_state.model_dump() if session.business_state else {}
+
+    if not has_minimum_data(business_state):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Pas encore assez de données pour générer le plan financier complet. "
+                "Terminez la collecte des informations (prix de vente, clients, charges fixes) "
+                "avant de télécharger le PDF."
+            ),
+        )
+
+    computed = compute_plan(business_state)
+    if not computed:
+        raise HTTPException(
+            status_code=400,
+            detail="Le calcul du plan financier a échoué. Vérifiez les données saisies.",
+        )
+
+    pdf_bytes = build_plan_pdf(business_state, computed)
+
+    entity_name = business_state.get("entity_name") or "business_plan"
+    safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", entity_name).strip("_") or "business_plan"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="business_plan_{safe_name}.pdf"'},
+    )

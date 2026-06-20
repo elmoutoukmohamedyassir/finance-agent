@@ -14,7 +14,6 @@ google-generativeai==0.3.0
 # Database
 sqlalchemy==2.0.0
 alembic==1.12.0
-psycopg2-binary
 
 # RAG - vector store
 chromadb==0.5.3
@@ -22,9 +21,11 @@ chromadb==0.5.3
 # RAG - PDF parsing
 pypdf==4.3.1
 
+# Business plan PDF export
+reportlab==4.2.5
+
 # RAG - embeddings (fallback if not using Ollama)
 sentence-transformers==3.0.1
 
 # HTTP (used by Ollama embedder)
 requests==2.32.3
-httpx==0.27.2
