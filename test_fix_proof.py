@@ -195,6 +195,25 @@ if direct_response.metrics_calculated:
 assert direct_response.metrics_calculated, "Phase3 did NOT run the real engine!"
 print("\n✅ Phase3 now runs the real deterministic engine — these numbers are computed, not guessed.")
 
+print("\n" + "=" * 80)
+print("PHASE 3b — does the agent offer + generate the FULL business plan?")
+print("=" * 80)
+
+offer_check = "Souhaitez-vous que je génère votre Business Plan complet" in (p3.conversation_history[-1]["content"] or "")
+print(f"\nInitial analysis message ends with the plan offer: {offer_check}")
+assert offer_check, "Phase3 did not offer the full business plan after the first analysis!"
+
+print('\nTurn: "oui" (accepting the offer)')
+p3b = run_turn("oui")
+has_tables = "PLAN DE FINANCEMENT INITIAL" in (p3b.conversation_history[-1]["content"] or "")
+has_bilan = "BILAN SIMPLIFIÉ" in (p3b.conversation_history[-1]["content"] or "")
+print("Full plan tables present in response:", has_tables)
+print("Bilan section present:", has_bilan)
+assert has_tables and has_bilan, "Saying 'oui' did not produce the full business plan tables!"
+
+print("\n✅ The agent now actually offers AND generates the full business plan")
+print("   (compte de résultat, plan de trésorerie, plan de financement, bilan) on request.")
+
 final = get_or_create_session(session_id)
 print("\n" + "=" * 80)
 print("FINAL STATE")

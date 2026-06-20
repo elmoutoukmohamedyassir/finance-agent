@@ -87,17 +87,104 @@ def _business_state_to_hypothesis(bs: dict) -> HypothesisOutput:
     )
 
 
+def _format_full_plan_tables(plan) -> str:
+    """
+    The complete plan financier: plan de financement, compte de résultat (2 ans),
+    plan de trésorerie, bilan simplifié (2 ans), KPIs. This is the full
+    "Business Plan" — format_plan_for_prompt() (used for grounding the LLM
+    on every turn) is a condensed few-line version of the same data; this is
+    the full version actually shown to the user once they ask for it.
+    """
+    a1, a2 = plan.annee1, plan.annee2
+    fin = plan.plan_financement
+    b1, b2 = plan.bilan_annee1, plan.bilan_annee2
+
+    lines = [
+        "━━━ PLAN DE FINANCEMENT INITIAL ━━━",
+        f"Besoins    : {fin.total_besoins:>12,.0f} MAD",
+        f"Ressources : {fin.total_ressources:>12,.0f} MAD",
+        f"Solde      : {fin.solde:>12,.0f} MAD  "
+        + ("✅ équilibré" if fin.solde >= 0 else "❌ DÉFICIT — financement complémentaire nécessaire"),
+        "",
+        "━━━ COMPTE DE RÉSULTAT PRÉVISIONNEL ━━━",
+        f"{'':<28}{'Année 1':>14}{'Année 2':>14}",
+        f"{'Chiffre d’affaires':<28}{a1['ca_total']:>14,.0f}{a2['ca_total']:>14,.0f}",
+        f"{'Marge brute':<28}{a1['marge_brute']:>14,.0f}{a2['marge_brute']:>14,.0f}",
+        f"{'EBITDA':<28}{a1['ebitda']:>14,.0f}{a2['ebitda']:>14,.0f}",
+        f"{'Résultat net':<28}{a1['resultat_net']:>14,.0f}{a2['resultat_net']:>14,.0f}",
+        f"{'Marge nette':<28}{str(a1.get('marge_nette_pct','N/A'))+'%':>14}{str(a2.get('marge_nette_pct','N/A'))+'%':>14}",
+        "",
+        "━━━ PLAN DE TRÉSORERIE ━━━",
+        f"Trésorerie fin année 1 : {a1['tresorerie_fin']:>12,.0f} MAD",
+        f"Trésorerie fin année 2 : {a2['tresorerie_fin']:>12,.0f} MAD",
+        "",
+        "━━━ BILAN SIMPLIFIÉ ━━━",
+        f"{'':<28}{'Année 1':>14}{'Année 2':>14}",
+        f"{'Immobilisations nettes':<28}{b1.immobilisations_nettes:>14,.0f}{b2.immobilisations_nettes:>14,.0f}",
+        f"{'Stocks':<28}{b1.stocks:>14,.0f}{b2.stocks:>14,.0f}",
+        f"{'Créances clients':<28}{b1.creances_clients:>14,.0f}{b2.creances_clients:>14,.0f}",
+        f"{'Trésorerie':<28}{b1.tresorerie:>14,.0f}{b2.tresorerie:>14,.0f}",
+        f"{'TOTAL ACTIF':<28}{b1.total_actif:>14,.0f}{b2.total_actif:>14,.0f}",
+        f"{'Capital social':<28}{b1.capital_social:>14,.0f}{b2.capital_social:>14,.0f}",
+        f"{'Réserves / résultats':<28}{b1.reserves_resultats:>14,.0f}{b2.reserves_resultats:>14,.0f}",
+        f"{'Dettes bancaires':<28}{b1.dettes_bancaires:>14,.0f}{b2.dettes_bancaires:>14,.0f}",
+        f"{'TOTAL PASSIF':<28}{b1.total_passif:>14,.0f}{b2.total_passif:>14,.0f}",
+        "",
+        "━━━ KPIs CLÉS ━━━",
+        f"Seuil de rentabilité : {plan.seuil_rentabilite_clients:.0f} clients/mois" if plan.seuil_rentabilite_clients else "Seuil de rentabilité : non calculable",
+        f"Point mort           : mois {plan.mois_point_mort}" if plan.mois_point_mort else "Point mort           : non atteint sur 24 mois",
+        f"ROI année 1          : {plan.roi_annee1:.1f}%" if plan.roi_annee1 else "",
+        f"ROI année 2          : {plan.roi_annee2:.1f}%" if plan.roi_annee2 else "",
+        f"DSCR année 1         : {plan.dscr_annee1:.2f}x" if plan.dscr_annee1 else "",
+    ]
+    return "\n".join(l for l in lines if l)
+
+
+def _wants_full_plan(user_message: str, conversation_history: list) -> bool:
+    """
+    Detect whether the user is asking for the complete business plan
+    (compte de résultat, plan de trésorerie, plan de financement, bilan),
+    either explicitly, or by saying "oui" right after we offered it.
+    """
+    lower = (user_message or "").lower().strip()
+    explicit = [
+        "business plan complet", "plan complet", "compte de résultat",
+        "plan de trésorerie", "plan de financement", "bilan prévisionnel",
+        "génère le plan", "generate the plan", "full business plan",
+    ]
+    if any(kw in lower for kw in explicit):
+        return True
+
+    affirmative = ("oui", "yes", "ok", "d'accord", "daccord", "vas-y", "go", "allez", "bien sûr", "bien sur")
+    if any(lower == a or lower.startswith(a + " ") or lower.startswith(a + ",") for a in affirmative):
+        last_assistant = next(
+            (m.get("content", "") for m in reversed(conversation_history) if m.get("role") == "assistant"),
+            "",
+        )
+        return "business plan complet" in last_assistant.lower()
+
+    return False
+
+
+PLAN_OFFER_SUFFIX = (
+    "\n\n---\n📄 **Souhaitez-vous que je génère votre Business Plan complet ?**\n"
+    "*(Compte de résultat · Plan de trésorerie · Plan de financement · Bilan simplifié, sur 2 ans)*\n\n"
+    "Répondez **oui** pour le générer, ou posez-moi une question sur les résultats."
+)
+
+
 class Phase3AnalysisAgent(BaseAgent):
     agent_id = "phase3_analysis"
-    agent_version = "2.0.0"
+    agent_version = "2.1.0"
     description = "Financial analysis backed by the real KPI/break-even engine — the LLM only interprets numbers, never invents them."
 
     def process(self, message: AgentMessage) -> AgentResponse:
         """
         Perform financial analysis on collected data using the real
         deterministic engine, then ask the LLM to interpret/explain it.
-        Can also answer follow-up finance questions while staying grounded
-        in the same calculated numbers.
+        Can also answer follow-up finance questions, or generate the full
+        business plan document, while staying grounded in the same
+        calculated numbers.
         """
         try:
             business_state = message.structured_payload or message.context.get("business_state", {})
@@ -109,6 +196,7 @@ class Phase3AnalysisAgent(BaseAgent):
             # ── 1. Run the REAL deterministic engine — no LLM math ─────────
             derived_summary = ""
             plan_summary = ""
+            plan = None
             try:
                 hypothesis = _business_state_to_hypothesis(business_state)
                 financial_data, derived, proj_inputs = ingest_hypothesis(hypothesis, fiscal_year=2025)
@@ -139,17 +227,68 @@ class Phase3AnalysisAgent(BaseAgent):
             except Exception as e:
                 logger.info(f"Phase3: RAG unavailable, continuing without it: {e}")
 
-            system_prompt = build_analysis_system_prompt(phase="pre_creation", rag_context=rag_context)
             data_summary = self._format_business_data(business_state)
 
-            if message.user_message and derived_summary:
-                # Follow-up question while already in phase3 — stay grounded
-                # in the SAME calculated numbers, don't recompute per-turn.
+            # Track whether we've already given the initial analysis in an
+            # earlier turn. conversation_history is never empty by the time
+            # we reach phase3 (phase1+phase2 already happened), so we can't
+            # use "history exists" as the signal — we need an explicit marker
+            # that survives across turns. Reuse `asked_questions`, which
+            # chat.py already persists back onto the session for us.
+            asked_questions = list(message.context.get("asked_questions", []))
+            is_followup = "phase3_analysis_done" in asked_questions
+
+            # ── 3. Full Business Plan path ──────────────────────────────────
+            if plan and _wants_full_plan(message.user_message, conversation_history):
+                full_tables = _format_full_plan_tables(plan)
+                system_prompt = build_analysis_system_prompt(phase="business_plan", rag_context=rag_context)
+                narrative = groq_client.chat(
+                    system_prompt=system_prompt,
+                    user_message=(
+                        "Génère une synthèse exécutive du Business Plan ci-dessous : résumé exécutif, "
+                        "analyse des 3 principaux risques avec mitigation, recommandations stratégiques, "
+                        "et un plan d'action concret pour les 6 premiers mois.\n\n"
+                        f"DONNÉES (calculées — ne pas recalculer) :\n{full_tables}"
+                    ),
+                    conversation_history=conversation_history[-4:],
+                    temperature=0.3,
+                    max_tokens=2200,
+                )
+                full_message = (
+                    f"{narrative}\n\n{full_tables}\n\n"
+                    "---\n✅ **Business Plan généré.** Vous pouvez me poser des questions sur "
+                    "n'importe quelle ligne, ou demander un scénario optimiste/pessimiste."
+                )
+                return AgentResponse(
+                    agent_id=self.agent_id,
+                    session_id=message.session_id,
+                    intent=message.intent,
+                    message=full_message,
+                    agent_mode="business_plan",
+                    business_state=business_state,
+                    metrics_calculated={
+                        "derived_summary": derived_summary,
+                        "plan_summary": plan_summary,
+                        "full_plan_tables": full_tables,
+                    },
+                    structured_output={
+                        "next_phase": "phase3",
+                        "analysis_completed": True,
+                        "full_plan_generated": True,
+                        "asked_questions": asked_questions,
+                    },
+                )
+
+            # ── 4. Standard interpretive analysis / follow-up Q&A ───────────
+            system_prompt = build_analysis_system_prompt(phase="pre_creation", rag_context=rag_context)
+
+            if is_followup and derived_summary:
                 user_request = (
                     f"Question de l'entrepreneur : {message.user_message}\n\n"
                     f"RAPPEL — VARIABLES CALCULÉES (ne pas recalculer) :\n{derived_summary}\n\n"
                     f"RAPPEL — PLAN 24 MOIS (ne pas recalculer) :\n{plan_summary}"
                 )
+                offer_suffix = ""
             elif derived_summary:
                 user_request = (
                     f"DONNÉES DU PROJET :\n{data_summary}\n\n"
@@ -163,6 +302,12 @@ class Phase3AnalysisAgent(BaseAgent):
                     "4. Statut juridique recommandé + obligations fiscales clés (TVA, IS/IR, CNSS)\n"
                     "5. Une action prioritaire immédiate"
                 )
+                # Only offer the full plan right after the FIRST analysis pass,
+                # not on every follow-up turn. Mark it done so the NEXT turn
+                # is correctly treated as a follow-up rather than redoing this.
+                offer_suffix = PLAN_OFFER_SUFFIX
+                if "phase3_analysis_done" not in asked_questions:
+                    asked_questions.append("phase3_analysis_done")
             else:
                 # Engine couldn't run — say so plainly instead of fabricating numbers.
                 user_request = (
@@ -172,6 +317,7 @@ class Phase3AnalysisAgent(BaseAgent):
                     "Indique précisément quelles informations manquent et pourquoi elles sont "
                     "nécessaires. NE PAS inventer de chiffres."
                 )
+                offer_suffix = ""
 
             analysis_response = groq_client.chat(
                 system_prompt=system_prompt,
@@ -185,7 +331,7 @@ class Phase3AnalysisAgent(BaseAgent):
                 agent_id=self.agent_id,
                 session_id=message.session_id,
                 intent=message.intent,
-                message=analysis_response,
+                message=analysis_response + offer_suffix,
                 agent_mode="analyzing",
                 business_state=business_state,
                 metrics_calculated=(
@@ -195,6 +341,7 @@ class Phase3AnalysisAgent(BaseAgent):
                 structured_output={
                     "next_phase": "phase3",
                     "analysis_completed": bool(derived_summary),
+                    "asked_questions": asked_questions,
                 },
             )
 
