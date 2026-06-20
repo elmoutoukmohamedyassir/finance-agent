@@ -292,7 +292,13 @@ def get_next_question(
 ) -> Tuple[Optional[str], Optional[str]]:
     """Returns (field_name, question_text) for next unanswered field."""
     priority = PHASE_FIELD_PRIORITIES.get(phase, PRE_CREATION_PRIORITY)
-    filled = state.filled_fields()
+    # `state` is a BusinessState in some call sites and a plain dict (e.g.
+    # from BusinessState.model_dump()) in others — support both so this
+    # doesn't crash with AttributeError when called from phase2_collection_agent.
+    if hasattr(state, "filled_fields"):
+        filled = state.filled_fields()
+    else:
+        filled = {k: v for k, v in dict(state).items() if v is not None and v != ""}
 
     # Expand with H-variable aliases
     alias_map = {

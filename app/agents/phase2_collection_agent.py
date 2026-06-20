@@ -43,10 +43,12 @@ class Phase2DataCollectionAgent(BaseAgent):
                         intent=message.intent,
                         message=f"Je n'ai pas bien compris. {validation_error}\n\nPouvez-vous réessayer ?",
                         agent_mode="collecting",
+                        business_state=business_state,
                         structured_output={
                             "business_state": business_state,
                             "asked_questions": asked_questions,
                             "pending_question": pending_question,
+                            "next_phase": "phase2",
                         },
                     )
 
@@ -64,10 +66,11 @@ class Phase2DataCollectionAgent(BaseAgent):
                         "Passons à la phase d'analyse..."
                     ),
                     agent_mode="ready_for_analysis",
+                    business_state=business_state,
                     structured_output={
                         "business_state": business_state,
                         "ready_for_phase3": True,
-                        "phase": "collection",
+                        "next_phase": "phase3",
                     },
                 )
 
@@ -85,10 +88,11 @@ class Phase2DataCollectionAgent(BaseAgent):
                     intent=message.intent,
                     message="Je vais maintenant préparer votre analyse financière personnalisée...",
                     agent_mode="ready_for_analysis",
+                    business_state=business_state,
                     structured_output={
                         "business_state": business_state,
                         "ready_for_phase3": True,
-                        "phase": "collection",
+                        "next_phase": "phase3",
                     },
                 )
 
@@ -102,11 +106,12 @@ class Phase2DataCollectionAgent(BaseAgent):
                 intent=message.intent,
                 message=question_full,
                 agent_mode="collecting",
+                business_state=business_state,
                 structured_output={
                     "business_state": business_state,
                     "asked_questions": asked_questions,
                     "pending_question": next_field,
-                    "phase": "collection",
+                    "next_phase": "phase2",
                 },
             )
 
@@ -123,5 +128,8 @@ class Phase2DataCollectionAgent(BaseAgent):
             "nb_clients_mois1", "taux_croissance_mensuel",
             "loyer_mensuel", "salaires_equipe", "investissements_initiaux",
         }
-        filled = set(business_state.keys())
+        # business_state usually comes from BusinessState.model_dump(), which
+        # always includes every field name (most set to None). Checking
+        # .keys() alone would make this always-True from the very first turn.
+        filled = {k for k, v in business_state.items() if v is not None and v != ""}
         return minimum_fields.issubset(filled)

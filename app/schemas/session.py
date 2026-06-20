@@ -110,7 +110,16 @@ class ConversationSession(BaseModel):
     session_id:   str
     created_at:   datetime = Field(default_factory=datetime.utcnow)
     updated_at:   datetime = Field(default_factory=datetime.utcnow)
+
+    # NOTE: `phase` (the Phase enum below) is only used by the legacy/unused
+    # finance_agent.handle_chat() pipeline. The LIVE chat path (api/routers/chat.py
+    # + PhaseRouter) must never write into it — it is strictly typed to the 6
+    # enum values below, and writing anything else (e.g. "ideation", "collection")
+    # makes the session unparseable on the *next* load, silently destroying all
+    # history. The live path uses `router_phase` instead — a plain free-form
+    # string ("phase1" | "phase2" | "phase3" | "phase4") that can't corrupt itself.
     phase:        Phase    = Phase.WELCOME
+    router_phase: str      = "phase1"
 
     conversation_history: list[dict]  = Field(default_factory=list)
     business_state:       BusinessState = Field(default_factory=BusinessState)

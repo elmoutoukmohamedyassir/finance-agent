@@ -61,7 +61,7 @@ class Phase1IdeationAgent(BaseAgent):
                 max_tokens=400,
             )
 
-            should_advance = self._check_readiness_for_phase2(message.user_message)
+            should_advance = self._check_readiness_for_phase2(message.user_message, conversation_history)
 
             return AgentResponse(
                 agent_id=self.agent_id,
@@ -72,7 +72,10 @@ class Phase1IdeationAgent(BaseAgent):
                 success=True,
                 structured_output={
                     "ready_for_phase2": should_advance,
-                    "phase": "ideation",
+                    # "next_phase" is what PhaseRouter/chat.py persist as
+                    # session.router_phase. It is a free-form string, never
+                    # written into the strict `Phase` enum field.
+                    "next_phase": "phase2" if should_advance else "phase1",
                 },
             )
 
@@ -83,7 +86,7 @@ class Phase1IdeationAgent(BaseAgent):
     def can_handle(self, intent: str) -> bool:
         return intent in ("ideation", "idea_validation", "chat")
 
-    def _check_readiness_for_phase2(self, user_message: str) -> bool:
+    def _check_readiness_for_phase2(self, user_message: str, conversation_history: list) -> bool:
         lower = user_message.lower()
         keywords = [
             "analyser", "analyze", "calculer", "calculate", "chiffre",
@@ -92,4 +95,14 @@ class Phase1IdeationAgent(BaseAgent):
             "projection", "prévision", "détail", "detailed", "business plan",
             "étapes", "steps", "quoi faire", "what to do", "suivant", "next",
         ]
-        return any(kw in lower for kw in keywords)
+        if any(kw in lower for kw in keywords):
+            return True
+
+        # Safety net: the system prompt promises the LLM will suggest moving
+        # on "après 2-3 échanges" — but that suggestion was only ever text,
+        # it never actually drove routing. A real conversation that never
+        # happens to use one of the keywords above would stay in phase1
+        # forever. Count user turns so it advances regardless after a few
+        # exchanges, matching what the prompt already tells the user to expect.
+        user_turns = sum(1 for m in conversation_history if m.get("role") == "user")
+        return user_turns >= 3

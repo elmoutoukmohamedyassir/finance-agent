@@ -24,29 +24,36 @@ class PhaseRouter:
         """
         Determine current phase based on session context.
         Returns: "phase1" | "phase2" | "phase3" | "phase4"
+
+        Priority:
+          1. business_state.is_created -> phase4 (post-creation), always wins.
+          2. Enough fields already collected -> phase3, even if we haven't
+             been told to leave phase2/phase1 yet (lets a user who blurts out
+             every number at once skip straight to analysis).
+          3. Otherwise, stick to whatever `router_phase` was persisted on the
+             session last turn (set by the previous agent's `next_phase`).
+          4. Default: phase1.
         """
         business_state = session_context.get("business_state", {})
 
-        # Phase 4: Post-creation (if business is created)
         if business_state.get("is_created"):
             return "phase4"
 
-        # Phase 3: Ready for analysis (minimum fields with actual non-None values)
         minimum_fields = {
             "entity_type", "segment_client", "prix_vente_unitaire",
             "nb_clients_mois1", "taux_croissance_mensuel",
             "loyer_mensuel", "salaires_equipe", "investissements_initiaux",
         }
-        # Only count fields that have actual non-None, non-empty values
         filled_fields = {k for k, v in business_state.items() if v is not None and v != ""}
         if minimum_fields.issubset(filled_fields):
             return "phase3"
 
-        # Phase 2: Only when explicitly flagged — never default into it
-        if session_context.get("in_collection"):
+        router_phase = session_context.get("router_phase", "phase1")
+        if router_phase in ("phase2", "phase3", "phase4"):
+            # Not enough fields for phase3 (checked above), but we've already
+            # left phase1 — keep collecting rather than restarting ideation.
             return "phase2"
 
-        # Phase 1: Ideation (default)
         return "phase1"
 
     def route_message(self, message: AgentMessage, session_context: dict) -> AgentResponse:
@@ -58,10 +65,11 @@ class PhaseRouter:
         try:
             if current_phase == "phase1":
                 response = self.phase1.process(message)
-                if response.structured_output and response.structured_output.get("ready_for_phase2"):
-                    message.context["in_collection"] = True
-                    session_context["phase"] = "phase2"
-                    response.message += "\n\nProchaine étape: Je vais poser des questions spécifiques pour affiner l'analyse."
+                if response.structured_output and response.structured_output.get("next_phase") == "phase2":
+                    response.message += (
+                        "\n\nProchaine étape : je vais vous poser quelques questions chiffrées "
+                        "pour préparer une vraie analyse financière."
+                    )
                 return response
 
             elif current_phase == "phase2":
@@ -77,6 +85,7 @@ class PhaseRouter:
                     intent=message.intent,
                     message="Vous êtes en phase post-création. Comment puis-je vous aider ?",
                     agent_mode="ongoing",
+                    structured_output={"next_phase": "phase4"},
                 )
 
         except Exception as e:
