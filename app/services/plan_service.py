@@ -3,6 +3,7 @@ services/plan_service.py — Store and retrieve generated business plans.
 """
 import uuid
 import logging
+import dataclasses
 from typing import Optional, Dict, Any
 from datetime import datetime
 from sqlalchemy.orm import Session
@@ -85,3 +86,51 @@ def update_business_plan(
     db.refresh(plan)
     logger.info(f"Updated business plan: {plan_id}")
     return plan
+
+
+def save_plan_from_computed(
+    db: Session,
+    client_id: str,
+    session_id: str,
+    computed,  # tools.plan_pipeline.ComputedPlan
+    narrative: Optional[str] = None,
+) -> BusinessPlan:
+    """
+    Bridge between the deterministic engine (tools/plan_pipeline.compute_plan,
+    tools/plan_generator.generate_24m_plan) and create_business_plan() above.
+
+    computed.plan is a BusinessPlan24M dataclass: annee1/annee2 are already
+    plain dicts, but plan_financement/bilan_annee1/bilan_annee2 are nested
+    dataclasses — dataclasses.asdict() converts the whole tree to plain
+    dicts in one call, which is what the JSONB columns need.
+
+    narrative: the LLM's executive-summary text for this plan (phase3
+    agent's "Génère une synthèse exécutive..." response), if available.
+    key_risks / action_plan_6months are left None for now — the LLM
+    narrative currently returns them as embedded prose, not a separate
+    structured list, so there's nothing reliable to split out yet.
+    """
+    plan = computed.plan
+    financial_highlights = {
+        "year1_revenue": plan.annee1.get("ca_total"),
+        "year1_net_result": plan.annee1.get("resultat_net"),
+        "year2_revenue": plan.annee2.get("ca_total"),
+        "year2_net_result": plan.annee2.get("resultat_net"),
+        "breakeven_clients_per_month": plan.seuil_rentabilite_clients,
+        "breakeven_month": plan.mois_point_mort,
+        "roi_year1_pct": plan.roi_annee1,
+        "roi_year2_pct": plan.roi_annee2,
+        "dscr_year1": plan.dscr_annee1,
+    }
+
+    return create_business_plan(
+        db=db,
+        client_id=client_id,
+        session_id=session_id,
+        executive_summary=narrative,
+        financial_highlights=financial_highlights,
+        annee1_data=plan.annee1,
+        annee2_data=plan.annee2,
+        plan_financement=dataclasses.asdict(plan.plan_financement),
+        narrative=narrative,
+    )

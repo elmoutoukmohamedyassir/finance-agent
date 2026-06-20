@@ -159,6 +159,11 @@ RÈGLES CRITIQUES :
 - Montants toujours en MAD (1 milliard MAD = 1000000000, 1 MMAD = 1000000)
 - Une seule lettre ou mot vague ("t", "g", "beaucoup", "pas mal") → {}
 - Si rien d'extractible → {}
+- SI le message indique "Champ attendu" et "Réponse de l'utilisateur", et que la réponse répond
+  directement à la question posée (même un simple nom, secteur ou choix, sans donnée chiffrée),
+  EXTRAIRE cette réponse dans le champ attendu.
+  Exemple : Champ attendu "entity_name", réponse "Dar Atlas" → {"entity_name": "Dar Atlas"}
+  Exemple : Champ attendu "sector", réponse "restauration" → {"sector": "restauration"}
 - UNIQUEMENT le JSON. Rien d'autre."""
 
 
@@ -198,11 +203,24 @@ def extract_and_validate(
     if pending_field and is_finance_question(user_message):
         return {}, None  # Caller routes to Q&A
 
-    # LLM extraction
+    # LLM extraction — include pending-field context so the model knows
+    # WHICH field this message is answering. Without this, a bare reply
+    # like "Dar Atlas" to "what's your business name?" has no financial
+    # signal at all and the extractor (correctly, per its own strict
+    # rules) returns {} — silently dropping every non-numeric answer.
+    extraction_input = user_message
+    if pending_field:
+        field_question = FIELD_QUESTIONS_FR.get(pending_field, {}).get("question", pending_field)
+        extraction_input = (
+            f'Question posée à l\'utilisateur : "{field_question}"\n'
+            f'Champ attendu : "{pending_field}"\n'
+            f'Réponse de l\'utilisateur : "{user_message}"'
+        )
+
     try:
         raw = groq_client.chat(
             system_prompt=EXTRACTION_SYSTEM_PROMPT_STRICT,
-            user_message=user_message,
+            user_message=extraction_input,
             temperature=0.0,
             max_tokens=400,
         )

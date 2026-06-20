@@ -13,6 +13,8 @@ from app.database.db import get_db, init_db
 from app.database.models import Client
 from app.services.client_service import get_or_create_client
 from app.services.session_service import get_or_create_session, save_session, SessionOwnershipError
+from app.services.kpi_service import save_kpis_from_computed
+from app.services.plan_service import save_plan_from_computed
 from app.tools.plan_pipeline import compute_plan, has_minimum_data
 from app.tools.plan_pdf import build_plan_pdf
 from typing import Optional
@@ -102,6 +104,12 @@ async def chat(
             }
             session.business_state = BusinessState(**merged)
 
+        # Snapshot asked_questions BEFORE it gets overwritten below — used
+        # right after to detect "analysis just completed for the first time
+        # this turn" vs. "this is a follow-up turn", so KPI persistence
+        # (further down) doesn't fire repeatedly on every follow-up question.
+        previously_asked_questions = list(session.questions_asked or [])
+
         # Update session router state
         if agent_response.structured_output:
             if "next_phase" in agent_response.structured_output:
@@ -114,6 +122,36 @@ async def chat(
 
         # Save session to Postgres
         save_session(db, session, client_id=client_id)
+
+        # Persist phase3 analytics (KPI snapshots, business plan) — only
+        # possible for authenticated callers, since client_id is NOT NULL
+        # on both tables. Anonymous sessions keep working for chat itself;
+        # they just don't get a saved history (matches the ownership model
+        # used everywhere else in this file).
+        if client_id and agent_response.structured_output:
+            so = agent_response.structured_output
+            newly_completed = (
+                so.get("analysis_completed")
+                and "phase3_analysis_done" not in previously_asked_questions
+                and "phase3_analysis_done" in (so.get("asked_questions") or [])
+            )
+            wants_plan_saved = so.get("full_plan_generated")
+
+            if newly_completed or wants_plan_saved:
+                try:
+                    computed = compute_plan(session.business_state.model_dump())
+                    if computed:
+                        if newly_completed:
+                            save_kpis_from_computed(db, client_id, session.session_id, computed)
+                        if wants_plan_saved:
+                            save_plan_from_computed(
+                                db, client_id, session.session_id, computed,
+                                narrative=agent_response.message,
+                            )
+                except Exception as e:
+                    # Never let analytics persistence break the chat response
+                    # itself — the user already has their answer either way.
+                    logger.error(f"Failed to persist phase3 analytics for session {session.session_id}: {e}")
 
         # Build response
         return ChatResponse(

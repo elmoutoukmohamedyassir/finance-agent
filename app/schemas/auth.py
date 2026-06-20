@@ -39,3 +39,15 @@ class TokenResponse(BaseModel):
     client_id: str
     email: Optional[str] = None
     name: Optional[str] = None
+
+
+class ClientProfileResponse(BaseModel):
+    """Response for GET /auth/me — the authenticated client's own profile."""
+    id: str
+    email: Optional[str] = None
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    sector: Optional[str] = None
+    is_active: bool
+
+    model_config = {"from_attributes": True}  # lets us return the Client ORM object directly

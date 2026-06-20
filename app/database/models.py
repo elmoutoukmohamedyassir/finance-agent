@@ -49,6 +49,9 @@ class Client(Base):
     # Relationships
     kpis = relationship("KPISnapshot", back_populates="client", cascade="all, delete-orphan")
     plans = relationship("BusinessPlan", back_populates="client", cascade="all, delete-orphan")
+    conversation_sessions = relationship(
+        "ConversationSessionDB", back_populates="client", cascade="all, delete-orphan"
+    )
 
     def __repr__(self):
         return f"<Client(id={self.id}, name={self.name}, email={self.email})>"
