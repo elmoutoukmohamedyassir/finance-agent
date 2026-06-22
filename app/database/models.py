@@ -41,6 +41,9 @@ class Client(Base):
     # Auth — nullable: see class docstring
     hashed_password = Column(String(255), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
+    refresh_tokens = relationship(
+        "RefreshToken", back_populates="client", cascade="all, delete-orphan"
+    )
 
     # timezone=True stores timestamps as TIMESTAMPTZ in PostgreSQL (always UTC-aware)
     created_at = Column(DateTime(timezone=True), default=_now, index=True)
@@ -143,3 +146,32 @@ class ConversationSessionDB(Base):
  
     def __repr__(self):
         return f"<ConversationSessionDB(id={self.id}, client_id={self.client_id}, updated_at={self.updated_at})>"
+
+class RefreshToken(Base):
+    """
+    Long-lived token used to obtain new access tokens without re-entering
+    a password. We store a hash of the token (sha256), never the raw
+    value — same principle as password storage, so a DB leak alone can't
+    be used to impersonate someone.
+
+    Rotation model: each successful /auth/refresh revokes this row
+    (sets revoked_at) and issues a brand new one. A token that's already
+    revoked can never be used again, even if it hasn't expired yet —
+    this makes stolen-token reuse detectable instead of silently allowed.
+    """
+    __tablename__ = "refresh_tokens"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+
+    token_hash = Column(String(64), nullable=False, unique=True, index=True)  # sha256 hex digest
+
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), default=_now, index=True)
+
+    client = relationship("Client", back_populates="refresh_tokens")
+
+    def __repr__(self):
+        return f"<RefreshToken(client_id={self.client_id}, revoked={self.revoked_at is not None})>"
