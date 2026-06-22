@@ -24,6 +24,9 @@ from passlib.context import CryptContext
 
 from app.core.config import get_settings
 
+import hashlib
+import secrets
+
 settings = get_settings()
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -75,3 +78,22 @@ def decode_access_token(token: str) -> Optional[str]:
         return payload.get("sub")
     except JWTError:
         return None
+
+def generate_refresh_token() -> str:
+    """
+    Generate a cryptographically random refresh token (not a JWT — just
+    a high-entropy random string). 48 bytes -> ~64 url-safe chars, far
+    beyond brute-force range.
+    """
+    return secrets.token_urlsafe(48)
+
+
+def hash_token(raw_token: str) -> str:
+    """
+    Hash a refresh token for storage/lookup. sha256 (not bcrypt) is
+    correct here: bcrypt is for low-entropy human passwords that need
+    deliberate slowness against guessing; this token already has ~284
+    bits of entropy, so a fast deterministic hash is fine and lets us
+    index/look it up directly by hash in the DB.
+    """
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()

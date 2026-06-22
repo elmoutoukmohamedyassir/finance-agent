@@ -9,9 +9,13 @@ from app.api.deps import get_current_client
 from app.core.security import create_access_token
 from app.database.db import get_db
 from app.database.models import Client
-from app.schemas.auth import SignupRequest, LoginRequest, TokenResponse, ClientProfileResponse
+from app.schemas.auth import (
+    SignupRequest, LoginRequest, TokenResponse, ClientProfileResponse,
+    RefreshRequest, LogoutRequest,
+)
 from app.schemas.client import BusinessPlanSummary, KPISnapshotOut
 from app.services.client_service import create_client_with_password, authenticate_client
+from app.services.refresh_token_service import issue_refresh_token, rotate_refresh_token, revoke_refresh_token
 from app.services.plan_service import get_plans_by_client
 from app.services.kpi_service import get_kpis_by_client
 
@@ -33,7 +37,11 @@ def signup(request: SignupRequest, db: Session = Depends(get_db)) -> TokenRespon
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
 
     token = create_access_token(subject=client.id)
-    return TokenResponse(access_token=token, client_id=client.id, email=client.email, name=client.name)
+    refresh_token = issue_refresh_token(db, client.id)
+    return TokenResponse(
+        access_token=token, refresh_token=refresh_token,
+        client_id=client.id, email=client.email, name=client.name,
+    )
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -48,7 +56,11 @@ def login(request: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
         )
 
     token = create_access_token(subject=client.id)
-    return TokenResponse(access_token=token, client_id=client.id, email=client.email, name=client.name)
+    refresh_token = issue_refresh_token(db, client.id)
+    return TokenResponse(
+        access_token=token, refresh_token=refresh_token,
+        client_id=client.id, email=client.email, name=client.name,
+    )
 
 
 @router.get("/me", response_model=ClientProfileResponse)
@@ -81,3 +93,42 @@ def list_my_kpis(
 ) -> List[KPISnapshotOut]:
     """List every KPI snapshot ever calculated for this client, most recent first."""
     return get_kpis_by_client(db, current_client.id)
+
+
+@router.post("/refresh", response_model=TokenResponse)
+def refresh(request: RefreshRequest, db: Session = Depends(get_db)) -> TokenResponse:
+    """
+    Exchange a still-valid refresh token for a brand new access token AND
+    a brand new refresh token (rotation — the one sent in this request is
+    immediately revoked, so it can't be replayed). Generic 401 on any
+    failure, same principle as /login: don't reveal whether the token was
+    invalid, expired, or already used.
+    """
+    result = rotate_refresh_token(db, request.refresh_token)
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    new_refresh_token, client = result
+    new_access_token = create_access_token(subject=client.id)
+    return TokenResponse(
+        access_token=new_access_token, refresh_token=new_refresh_token,
+        client_id=client.id, email=client.email, name=client.name,
+    )
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(request: LogoutRequest, db: Session = Depends(get_db)) -> None:
+    """
+    Revoke a refresh token (one device/session logged out). No access
+    token required — whoever holds a valid refresh token could mint a
+    fresh access token anyway via /refresh, so skipping the access-token
+    check here doesn't weaken anything. Always returns 204, even if the
+    token was already invalid/expired — logout is idempotent from the
+    caller's point of view.
+    """
+    revoke_refresh_token(db, request.refresh_token)
+    return None

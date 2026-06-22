@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     secret_key: str = Field(default="")
     algorithm:  str = Field(default="HS256")
     access_token_expire_minutes: int = Field(default=60 * 24)  # 24h
+    refresh_token_expire_days: int = Field(default=30)
 
     # Database (Postgresql for sessions & analytics)
     database_url: str = Field(default="postgresql://postgres:postgres@localhost:5432/finance_agent")

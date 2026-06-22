@@ -35,10 +35,23 @@ class LoginRequest(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
     client_id: str
     email: Optional[str] = None
     name: Optional[str] = None
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {"refresh_token": "AaBbCc..."}
+        }
+    }
+
+class LogoutRequest(BaseModel):
+    refresh_token: str
 
 
 class ClientProfileResponse(BaseModel):
