@@ -61,6 +61,8 @@
   button.send:disabled { opacity: 0.3; cursor: default; }
   .reset-btn { font-family: var(--mono); font-size: 11px; color: var(--text-dim); background: none; border: none; cursor: pointer; padding: 2px 0; transition: color 0.15s; }
   .reset-btn:hover { color: var(--text-muted); }
+  .user-tag { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
+  .user-tag.guest { color: var(--text-dim); }
   .pdf-download { display: inline-flex; align-items: center; gap: 6px; margin-top: 14px; background: var(--accent-dim); border: 1px solid var(--accent-border); color: var(--accent); font-family: var(--mono); font-size: 12px; padding: 8px 14px; border-radius: var(--radius); cursor: pointer; transition: opacity 0.15s, transform 0.1s; }
   .pdf-download:hover { opacity: 0.85; }
   .pdf-download:active { transform: scale(0.97); }
@@ -93,7 +95,9 @@
       <div class="logo-text">finance<span>_agent</span>.ma</div>
     </div>
     <div style="display:flex;align-items:center;gap:10px">
+      <span class="user-tag" id="userTag"></span>
       <button class="reset-btn" onclick="resetSession()">nouvelle session</button>
+      <button class="reset-btn" id="logoutBtn" onclick="logout()" style="display:none">déconnexion</button>
       <div class="phase-badge" id="phaseBadge">welcome</div>
     </div>
   </header>
@@ -131,6 +135,102 @@
 
 </div>
 <script>
+  const AUTH_KEY = 'fa_auth';
+  const API_URL_KEY = 'fa_api_url';
+
+  function getAuth() {
+    try { return JSON.parse(localStorage.getItem(AUTH_KEY) || 'null'); }
+    catch { return null; }
+  }
+
+  let auth = getAuth();
+  const isGuest = !auth && sessionStorage.getItem('fa_guest') === '1';
+
+  // Gate access: anyone who isn't logged in and didn't explicitly choose
+  // "continuer sans compte" on the login/signup pages gets sent there.
+  if (!auth && !isGuest) {
+    window.location.href = 'login.html';
+  }
+
+  function saveAuth(data) {
+    auth = {
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+      client_id: data.client_id,
+      email: data.email,
+      name: data.name
+    };
+    localStorage.setItem(AUTH_KEY, JSON.stringify(auth));
+  }
+
+  function clearAuthAndRedirect() {
+    localStorage.removeItem(AUTH_KEY);
+    sessionStorage.removeItem('fa_guest');
+    window.location.href = 'login.html';
+  }
+
+  function logout() {
+    // Best-effort server-side revoke of the refresh token. keepalive lets
+    // the request survive the page navigating away right after.
+    if (auth && auth.refresh_token) {
+      fetch(apiUrl() + '/api/v1/auth/logout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: auth.refresh_token }),
+        keepalive: true
+      }).catch(() => {});
+    }
+    clearAuthAndRedirect();
+  }
+
+  // Swap the current refresh token for a brand new access+refresh pair.
+  // Returns true on success (auth is updated in place), false if the
+  // refresh token itself is invalid/expired — caller should log out.
+  async function tryRefresh() {
+    if (!auth || !auth.refresh_token) return false;
+    try {
+      const res = await fetch(apiUrl() + '/api/v1/auth/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: auth.refresh_token }),
+        signal: AbortSignal.timeout(10000)
+      });
+      if (!res.ok) return false;
+      saveAuth(await res.json());
+      return true;
+    } catch { return false; }
+  }
+
+  // fetch() wrapper that attaches the access token and transparently
+  // retries once after a silent refresh if the server says it's expired.
+  // No-op passthrough for guest mode (auth is null).
+  async function authedFetch(url, options = {}) {
+    options.headers = options.headers || {};
+    if (auth) options.headers['Authorization'] = `Bearer ${auth.access_token}`;
+    let res = await fetch(url, options);
+    if (res.status === 401 && auth) {
+      const ok = await tryRefresh();
+      if (!ok) { clearAuthAndRedirect(); throw new Error('session expirée'); }
+      options.headers['Authorization'] = `Bearer ${auth.access_token}`;
+      res = await fetch(url, options);
+    }
+    return res;
+  }
+
+  function renderUserTag() {
+    const tag = document.getElementById('userTag');
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (auth) {
+      tag.textContent = auth.name || auth.email || 'connecté';
+      tag.className = 'user-tag';
+      logoutBtn.style.display = '';
+    } else {
+      tag.textContent = 'mode invité';
+      tag.className = 'user-tag guest';
+      logoutBtn.style.display = 'none';
+    }
+  }
+
   let sessionId = null, isLoading = false;
 
   const PHASE_LABELS = {
@@ -150,6 +250,9 @@
     return (document.getElementById('apiUrl').value || 'http://localhost:8000').replace(/\/$/,'');
   }
 
+  document.getElementById('apiUrl').value = localStorage.getItem(API_URL_KEY) || 'http://localhost:8000';
+  renderUserTag();
+
   async function checkConn() {
     const dot = document.getElementById('connDot');
     try {
@@ -158,7 +261,10 @@
     } catch { dot.className = 'dot err'; }
   }
 
-  document.getElementById('apiUrl').addEventListener('change', checkConn);
+  document.getElementById('apiUrl').addEventListener('change', () => {
+    localStorage.setItem(API_URL_KEY, apiUrl());
+    checkConn();
+  });
   checkConn();
 
   function useHint(el) {
@@ -249,7 +355,7 @@
     try {
       const body = { message: text };
       if (sessionId) body.session_id = sessionId;
-      const res = await fetch(apiUrl()+'/api/v1/chat', {
+      const res = await authedFetch(apiUrl()+'/api/v1/chat', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify(body),
@@ -274,7 +380,7 @@
     btn.disabled = true;
     btn.innerHTML = 'génération du PDF...';
     try {
-      const res = await fetch(apiUrl()+'/api/v1/chat/'+sessionId+'/plan/pdf', {
+      const res = await authedFetch(apiUrl()+'/api/v1/chat/'+sessionId+'/plan/pdf', {
         signal: AbortSignal.timeout(20000)
       });
       if (!res.ok) {
