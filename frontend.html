@@ -104,6 +104,46 @@
   .history-nav { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
   .history-nav a { font-family: var(--mono); font-size: 11px; color: var(--text-muted); text-decoration: none; }
   .history-nav a:hover { color: var(--accent); }
+
+  .risk-chip { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 20px; cursor: pointer; border: 1px solid var(--border); background: var(--bg); color: var(--text-muted); transition: all 0.15s; white-space: nowrap; }
+  .risk-chip:hover { border-color: var(--border-light); }
+  .risk-chip .risk-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
+  .risk-chip.viable { color: var(--accent); border-color: var(--accent-border); background: var(--accent-dim); }
+  .risk-chip.viable .risk-dot { background: var(--accent); }
+  .risk-chip.at_risk { color: var(--error); border-color: var(--error-border); background: var(--error-dim); }
+  .risk-chip.at_risk .risk-dot { background: var(--error); }
+  .risk-chip.loading .risk-dot { background: var(--text-muted); animation: blink 1.2s infinite; }
+
+  .risk-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.55); opacity: 0; pointer-events: none; transition: opacity 0.2s; z-index: 55; }
+  .risk-backdrop.open { opacity: 1; pointer-events: auto; }
+  .risk-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -48%) scale(0.97); width: 92%; max-width: 420px; max-height: 84vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); z-index: 60; opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.2s; }
+  .risk-modal.open { opacity: 1; pointer-events: auto; transform: translate(-50%, -50%) scale(1); }
+  .risk-modal-head { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; background: var(--surface); }
+  .risk-modal-head h2 { font-family: var(--mono); font-size: 13px; font-weight: 500; }
+  .risk-modal-body { padding: 20px; }
+  .risk-result-badge { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-radius: var(--radius); margin-bottom: 18px; border: 1px solid var(--border); }
+  .risk-result-badge.viable { background: var(--accent-dim); border-color: var(--accent-border); }
+  .risk-result-badge.at_risk { background: var(--error-dim); border-color: var(--error-border); }
+  .risk-result-label { font-family: var(--mono); font-size: 16px; font-weight: 500; }
+  .risk-result-badge.viable .risk-result-label { color: var(--accent); }
+  .risk-result-badge.at_risk .risk-result-label { color: var(--error); }
+  .risk-result-confidence { font-family: var(--mono); font-size: 22px; font-weight: 500; }
+  .risk-result-confidence .pct-unit { font-size: 12px; color: var(--text-dim); margin-left: 2px; }
+  .risk-section-title { font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 10px; }
+  .factor-row { margin-bottom: 12px; }
+  .factor-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-bottom: 5px; gap: 8px; }
+  .factor-label .factor-value { font-family: var(--mono); color: var(--text); flex-shrink: 0; }
+  .factor-bar-track { height: 5px; background: var(--bg); border-radius: 3px; overflow: hidden; }
+  .factor-bar-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.4s ease; }
+  .risk-model-info { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); display: flex; flex-wrap: wrap; gap: 10px 16px; }
+  .risk-model-info b { color: var(--text-muted); }
+  .risk-state-box { text-align: center; padding: 12px 4px 4px; }
+  .risk-state-box p { color: var(--text-muted); font-size: 13px; line-height: 1.7; margin-bottom: 4px; }
+  .risk-recalc { margin-top: 16px; width: 100%; font-family: var(--mono); font-size: 11.5px; padding: 9px; border-radius: var(--radius); cursor: pointer; border: 1px solid var(--border); background: var(--bg); color: var(--text-muted); transition: opacity 0.15s; }
+  .risk-recalc:hover { opacity: 0.8; }
+  .risk-recalc:disabled { opacity: 0.4; cursor: default; }
+  .spinner-mini { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto 12px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -148,6 +188,9 @@
 
   <div class="state-bar" id="stateBar">
     <span class="state-empty" id="stateEmpty">— aucune donnée collectée —</span>
+    <div class="risk-chip" id="riskChip" style="display:none" onclick="openRiskModal()">
+      <span class="risk-dot"></span><span id="riskChipLabel">prédiction IA</span>
+    </div>
   </div>
 
   <div class="input-area">
@@ -171,6 +214,16 @@
     <a href="kpis.html">→ mes kpis</a>
   </div>
 </div>
+
+<div class="risk-backdrop" id="riskBackdrop" onclick="closeRiskModal()"></div>
+<div class="risk-modal" id="riskModal">
+  <div class="risk-modal-head">
+    <h2>prédiction IA — viabilité</h2>
+    <button class="history-close" onclick="closeRiskModal()">✕</button>
+  </div>
+  <div class="risk-modal-body" id="riskModalBody"></div>
+</div>
+
 <script>
   const AUTH_KEY = 'fa_auth';
   const API_URL_KEY = 'fa_api_url';
@@ -339,6 +392,162 @@
     document.getElementById('historyBackdrop').classList.remove('open');
   }
 
+  // ─── Risk / viability prediction (POST /api/v1/risk/predict) ───────────
+  // Pure ML inference (RandomForest/LogisticRegression + SHAP), tolerates
+  // partial business_state. We mirror that here: fire it automatically once
+  // enough fields are known, show a live chip in the state bar, and let the
+  // chip open a detail modal with the SHAP-ranked contributing factors.
+  const RISK_FIELDS = [
+    'segment_client','type_activite','statut_juridique','nature_clients_encaissements',
+    'prix_vente_unitaire','nb_clients_mois1','taux_croissance_mensuel','taux_fidelisation',
+    'cout_fabrication_unitaire','cout_infra_numerique','loyer_mensuel','salaires_equipe',
+    'charges_utilites','budget_marketing','investissements_initiaux','emprunts',
+    'own_capital_invested','delai_jours'
+  ];
+  const RISK_NUMERIC_SIGNAL_FIELDS = [
+    'prix_vente_unitaire','nb_clients_mois1','loyer_mensuel','salaires_equipe','investissements_initiaux'
+  ];
+
+  let lastBusinessState = null;
+  let lastRiskResult = null;
+  let riskLoading = false;
+
+  function hasEnoughDataForRisk(state) {
+    if (!state) return false;
+    const present = RISK_NUMERIC_SIGNAL_FIELDS.filter(f => state[f] != null && state[f] !== '');
+    return present.length >= 3;
+  }
+
+  function buildRiskPayload(state) {
+    const payload = {};
+    for (const f of RISK_FIELDS) {
+      if (state[f] != null && state[f] !== '') payload[f] = state[f];
+    }
+    return payload;
+  }
+
+  function setRiskChip(mode, text) {
+    const chip = document.getElementById('riskChip');
+    const label = document.getElementById('riskChipLabel');
+    chip.style.display = '';
+    chip.className = 'risk-chip' + (mode ? ' ' + mode : '');
+    label.textContent = text;
+  }
+
+  async function maybeUpdateRisk(state) {
+    lastBusinessState = state || lastBusinessState;
+    if (!lastBusinessState || !hasEnoughDataForRisk(lastBusinessState) || riskLoading) return;
+    await fetchRisk();
+  }
+
+  async function fetchRisk() {
+    if (!lastBusinessState || riskLoading) return;
+    riskLoading = true;
+    setRiskChip('loading', 'analyse en cours...');
+    try {
+      const res = await authedFetch(apiUrl() + '/api/v1/risk/predict', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildRiskPayload(lastBusinessState)),
+        signal: AbortSignal.timeout(15000)
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      lastRiskResult = data;
+      if (data.label === 'unknown') {
+        setRiskChip('', 'prédiction IA — modèle non entraîné');
+      } else if (data.label === 'at_risk') {
+        setRiskChip('at_risk', `à risque · ${(data.confidence * 100).toFixed(0)}%`);
+      } else {
+        setRiskChip('viable', `viable · ${(data.confidence * 100).toFixed(0)}%`);
+      }
+      if (document.getElementById('riskModal').classList.contains('open')) renderRiskModal();
+    } catch (err) {
+      lastRiskResult = { label: 'unknown', confidence: 0, top_factors: [], error: 'Impossible de contacter le service de prédiction.' };
+      setRiskChip('', 'prédiction IA — indisponible');
+    } finally {
+      riskLoading = false;
+    }
+  }
+
+  function openRiskModal() {
+    document.getElementById('riskModal').classList.add('open');
+    document.getElementById('riskBackdrop').classList.add('open');
+    renderRiskModal();
+    if (!lastRiskResult && hasEnoughDataForRisk(lastBusinessState)) fetchRisk();
+  }
+  function closeRiskModal() {
+    document.getElementById('riskModal').classList.remove('open');
+    document.getElementById('riskBackdrop').classList.remove('open');
+  }
+
+  function renderRiskModal() {
+    const body = document.getElementById('riskModalBody');
+
+    if (riskLoading && !lastRiskResult) {
+      body.innerHTML = `<div class="risk-state-box"><div class="spinner-mini"></div><p>calcul en cours...</p></div>`;
+      return;
+    }
+    if (!hasEnoughDataForRisk(lastBusinessState) && !lastRiskResult) {
+      body.innerHTML = `<div class="risk-state-box"><p>Pas encore assez d'informations collectées pour une prédiction fiable.</p><p style="color:var(--text-dim);font-size:12px">Continuez la conversation — prix de vente, nombre de clients, loyer, salaires — la prédiction se calculera automatiquement.</p></div>`;
+      return;
+    }
+    if (!lastRiskResult) {
+      body.innerHTML = `<div class="risk-state-box"><p>Aucune prédiction encore calculée.</p></div>`;
+      return;
+    }
+
+    const r = lastRiskResult;
+
+    if (r.label === 'unknown') {
+      body.innerHTML = `
+        <div class="risk-state-box">
+          <p>${esc(r.error || 'Modèle de prédiction non disponible.')}</p>
+          <p style="color:var(--text-dim);font-size:11.5px">Le modèle scikit-learn n'a pas encore été entraîné sur cette installation — l'intégration côté serveur et côté interface est prête, il suffit d'exécuter <code style="color:var(--text-muted)">scripts/train_risk_model.py</code>.</p>
+        </div>
+        <button class="risk-recalc" onclick="fetchRisk().then(renderRiskModal)">réessayer</button>`;
+      return;
+    }
+
+    const labelText = r.label === 'viable' ? 'VIABLE' : 'À RISQUE';
+    const factors = (r.top_factors || []).map(f => `
+      <div class="factor-row">
+        <div class="factor-label"><span>${esc(f.label_fr)}</span><span class="factor-value">${esc(formatFactorValue(f.value))}</span></div>
+        <div class="factor-bar-track"><div class="factor-bar-fill" style="width:${Math.min(f.importance_pct,100)}%"></div></div>
+      </div>`).join('');
+
+    const mi = r.model_info || {};
+    const tm = mi.test_metrics || {};
+    const trainedDate = mi.trained_at ? new Date(mi.trained_at).toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' }) : '—';
+
+    body.innerHTML = `
+      <div class="risk-result-badge ${r.label}">
+        <span class="risk-result-label">${labelText}</span>
+        <span class="risk-result-confidence">${(r.confidence*100).toFixed(0)}<span class="pct-unit">% confiance</span></span>
+      </div>
+      ${factors ? `<div class="risk-section-title">facteurs déterminants (SHAP)</div>${factors}` : ''}
+      <div class="risk-model-info">
+        <span><b>modèle</b> ${esc(mi.model_type || '—')}</span>
+        <span><b>entraîné le</b> ${trainedDate}</span>
+        ${tm.f1 != null ? `<span><b>f1</b> ${tm.f1}</span>` : ''}
+        ${tm.accuracy != null ? `<span><b>précision</b> ${tm.accuracy}</span>` : ''}
+      </div>
+      <button class="risk-recalc" id="recalcBtn" onclick="recalcRisk()">recalculer avec les données actuelles</button>`;
+  }
+
+  function formatFactorValue(v) {
+    if (typeof v === 'number') return v.toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+    return v;
+  }
+
+  async function recalcRisk() {
+    const btn = document.getElementById('recalcBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'calcul en cours...'; }
+    await fetchRisk();
+    renderRiskModal();
+  }
+
+
   const PHASE_LABELS = {
     welcome:'welcome', collecting:'collecte', awaiting_plan_confirm:'confirmation',
     pre_creation:'pré-création', creation:'création', post_creation:'post-création',
@@ -376,7 +585,7 @@
       cached.messages.forEach(m => addMsg(m.role, m.text, m.mode, m.canDownloadPdf, true));
       currentMessages = cached.messages.slice();
       if (cached.phase) setPhase(cached.phase);
-      if (cached.businessState) updateState(cached.businessState);
+      if (cached.businessState) { updateState(cached.businessState); maybeUpdateRisk(cached.businessState); }
     } else {
       addMsg('agent', 'Session reprise — continuez la conversation, l\'agent se souvient du contexte précédent.', null, false, true);
     }
@@ -502,6 +711,7 @@
       addMsg('agent', data.message || '(pas de réponse)', data.agent_mode, !!data.metrics_calculated);
       document.getElementById('connDot').className = 'dot ok';
       commitHistory(data.business_state, data.current_phase || data.metadata?.phase);
+      if (data.business_state) maybeUpdateRisk(data.business_state);
     } catch(err) {
       addMsg('agent', `Erreur: ${err.message}\n\nVérifiez que le serveur tourne sur ${apiUrl()}`, 'error');
       document.getElementById('connDot').className = 'dot err';
