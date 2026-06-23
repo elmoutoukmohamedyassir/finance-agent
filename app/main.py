@@ -9,7 +9,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
-from app.api.routers import auth, chat, metrics, scenario, rag
+from app.api.routers import auth, chat, metrics, scenario, rag, risk
 from app.core.config import get_settings
 from app.database.db import get_db
 from app.services.session_service import get_session_count
@@ -72,6 +72,7 @@ app.include_router(chat.router, prefix=PREFIX)
 app.include_router(metrics.router, prefix=PREFIX)
 app.include_router(scenario.router, prefix=PREFIX)
 app.include_router(rag.router, prefix=PREFIX)
+app.include_router(risk.router, prefix=PREFIX)
 
 
 @app.get("/", tags=["Health"])

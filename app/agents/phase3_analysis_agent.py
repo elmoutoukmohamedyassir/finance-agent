@@ -21,9 +21,28 @@ import logging
 from app.agents.base_agent import BaseAgent, AgentMessage, AgentResponse
 from app.core.groq_client import groq_client
 from app.core.prompts import build_analysis_system_prompt
+from app.services.risk_predictor_service import predict_risk
 from app.tools.plan_pipeline import compute_plan, format_full_plan_tables
 
 logger = logging.getLogger(__name__)
+
+
+def _format_risk_summary(risk) -> str:
+    """
+    Render a RiskPrediction (from risk_predictor_service) as a short
+    French summary block for the LLM prompt — calculated, not to be
+    second-guessed by the model.
+    """
+    if risk.error:
+        return f"Non disponible ({risk.error})"
+
+    label_fr = "À RISQUE" if risk.label == "at_risk" else "VIABLE"
+    lines = [f"Classification : {label_fr}  (confiance : {risk.confidence:.0%})"]
+    if risk.top_factors:
+        lines.append("Principaux facteurs influençant cette prédiction :")
+        for f in risk.top_factors:
+            lines.append(f"  • {f.label_fr} = {f.value}  (poids : {f.importance_pct:.0f}%)")
+    return "\n".join(lines)
 
 
 def _wants_full_plan(user_message: str, conversation_history: list) -> bool:
@@ -89,6 +108,13 @@ class Phase3AnalysisAgent(BaseAgent):
                 # — be transparent about it below rather than crashing or
                 # letting the LLM fabricate numbers.
                 logger.warning("Phase3: calculation engine could not run (insufficient/invalid business_state)")
+
+            # ── 1b. ML risk classifier — pure inference, no LLM math ───────
+            # Works even on partial business_state (graceful defaults), so
+            # we always have a signal to show, even before the full plan
+            # can be computed.
+            risk = predict_risk(business_state)
+            risk_summary = _format_risk_summary(risk)
 
             # ── 2. Optional RAG grounding for Morocco tax/legal context ────
             rag_context = ""
@@ -162,7 +188,8 @@ class Phase3AnalysisAgent(BaseAgent):
                 user_request = (
                     f"Question de l'entrepreneur : {message.user_message}\n\n"
                     f"RAPPEL — VARIABLES CALCULÉES (ne pas recalculer) :\n{derived_summary}\n\n"
-                    f"RAPPEL — PLAN 24 MOIS (ne pas recalculer) :\n{plan_summary}"
+                    f"RAPPEL — PLAN 24 MOIS (ne pas recalculer) :\n{plan_summary}\n\n"
+                    f"RAPPEL — ÉVALUATION DE RISQUE ML (ne pas recalculer) :\n{risk_summary}"
                 )
                 offer_suffix = ""
             elif derived_summary:
