@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mes KPIs — Finance Agent</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0e0e0e; --surface: #161616; --border: #2a2a2a; --border-light: #333;
+    --text: #e8e8e8; --text-muted: #666; --text-dim: #444;
+    --accent: #d4ff4e; --accent-dim: rgba(212,255,78,0.08); --accent-border: rgba(212,255,78,0.25);
+    --error: #ef9a9a; --error-dim: rgba(239,154,154,0.08); --error-border: rgba(239,154,154,0.3);
+    --mono: 'IBM Plex Mono', monospace; --sans: 'IBM Plex Sans', sans-serif; --radius: 4px;
+  }
+  html, body { min-height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; line-height: 1.6; }
+  .wrap { max-width: 760px; margin: 0 auto; min-height: 100vh; display: flex; flex-direction: column; }
+  header { padding: 20px 24px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .logo { display: flex; align-items: center; gap: 10px; }
+  .logo-mark { width: 28px; height: 28px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+  .logo-mark svg { width: 14px; height: 14px; }
+  .logo-text { font-family: var(--mono); font-size: 13px; font-weight: 500; }
+  .logo-text span { color: var(--accent); }
+  .nav-right { display: flex; align-items: center; gap: 10px; }
+  .nav-link, .reset-btn { font-family: var(--mono); font-size: 11px; color: var(--text-dim); text-decoration: none; background: none; border: none; cursor: pointer; padding: 2px 0; transition: color 0.15s; }
+  .nav-link:hover, .reset-btn:hover { color: var(--text-muted); }
+  .user-tag { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
+  main { flex: 1; padding: 28px 24px 60px; }
+  .page-title { font-family: var(--mono); font-size: 19px; font-weight: 500; margin-bottom: 4px; }
+  .page-title span { color: var(--accent); }
+  .page-subtitle { color: var(--text-muted); font-size: 13px; margin-bottom: 28px; }
+  .state-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; text-align: center; }
+  .state-box p { color: var(--text-muted); font-size: 13px; margin-bottom: 16px; line-height: 1.7; }
+  .state-box a { color: var(--accent); text-decoration: none; font-family: var(--mono); font-size: 12.5px; }
+  .state-box a:hover { text-decoration: underline; }
+  .error-box { background: var(--error-dim); border: 1px solid var(--error-border); color: var(--error); font-size: 12px; padding: 10px 12px; border-radius: var(--radius); margin-bottom: 20px; line-height: 1.5; }
+  .spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto 12px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .kpi-group { display: flex; flex-direction: column; gap: 14px; }
+  .kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 22px; animation: fadeIn 0.2s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .kpi-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .kpi-card-date { font-family: var(--mono); font-size: 12px; font-weight: 500; color: var(--text); }
+  .kpi-card-link { font-family: var(--mono); font-size: 11px; }
+  .kpi-card-link a { color: var(--text-dim); text-decoration: none; }
+  .kpi-card-link a:hover { color: var(--accent); }
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+  .kpi-tile { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; }
+  .kpi-tile-name { font-size: 11.5px; color: var(--text-muted); margin-bottom: 6px; line-height: 1.4; }
+  .kpi-tile-value { font-family: var(--mono); font-size: 17px; color: var(--accent); }
+  .kpi-tile-value .unit { font-size: 11px; color: var(--text-dim); margin-left: 4px; }
+  .kpi-tile-explain { font-size: 10.5px; color: var(--text-dim); margin-top: 6px; line-height: 1.5; }
+  details.advanced { margin-top: 32px; border-top: 1px solid var(--border); padding-top: 14px; }
+  details.advanced summary { font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); cursor: pointer; list-style: none; }
+  details.advanced summary::-webkit-details-marker { display: none; }
+  .api-row { margin-top: 12px; display: flex; align-items: center; gap: 8px; }
+  .api-row label { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+  .api-row input { font-family: var(--mono); font-size: 11px; background: var(--surface); border: 1px solid var(--border); color: var(--text-muted); padding: 4px 8px; border-radius: 3px; width: 220px; outline: none; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
+  .dot.ok { background: var(--accent); }
+  .dot.err { background: var(--error); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">
+      <div class="logo-mark">
+        <svg viewBox="0 0 14 14" fill="none"><path d="M7 1L13 4V10L7 13L1 10V4L7 1Z" stroke="#0e0e0e" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="logo-text">finance<span>_agent</span>.ma</div>
+    </div>
+    <div class="nav-right">
+      <span class="user-tag" id="userTag"></span>
+      <a class="nav-link" href="frontend.html">← chat</a>
+      <a class="nav-link" href="plans.html">mes plans</a>
+      <button class="reset-btn" id="logoutBtn" onclick="logout()" style="display:none">déconnexion</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="page-title">Mes <span>KPIs</span></div>
+    <div class="page-subtitle">Chaque calcul d'indicateurs effectué dans le chat, groupé par session, le plus récent en premier.</div>
+
+    <div id="content">
+      <div class="state-box"><div class="spinner"></div><p>chargement...</p></div>
+    </div>
+
+    <details class="advanced">
+      <summary>paramètres avancés</summary>
+      <div class="api-row">
+        <label>API URL</label>
+        <input type="text" id="apiUrl" />
+        <div class="dot" id="connDot"></div>
+      </div>
+    </details>
+  </main>
+
+</div>
+<script>
+  const AUTH_KEY = 'fa_auth';
+  const API_URL_KEY = 'fa_api_url';
+
+  function getAuth() {
+    try { return JSON.parse(localStorage.getItem(AUTH_KEY) || 'null'); }
+    catch { return null; }
+  }
+  let auth = getAuth();
+
+  function apiUrl() {
+    return (document.getElementById('apiUrl').value || 'http://localhost:8000').replace(/\/$/, '');
+  }
+
+  function saveAuth(data) {
+    auth = {
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+      client_id: data.client_id,
+      email: data.email,
+      name: data.name
+    };
+    localStorage.setItem(AUTH_KEY, JSON.stringify(auth));
+  }
+
+  function clearAuthAndRedirect() {
+    localStorage.removeItem(AUTH_KEY);
+    sessionStorage.removeItem('fa_guest');
+    window.location.href = 'login.html';
+  }
+
+  function logout() {
+    if (auth && auth.refresh_token) {
+      fetch(apiUrl() + '/api/v1/auth/logout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: auth.refresh_token }),
+        keepalive: true
+      }).catch(() => {});
+    }
+    clearAuthAndRedirect();
+  }
+
+  async function tryRefresh() {
+    if (!auth || !auth.refresh_token) return false;
+    try {
+      const res = await fetch(apiUrl() + '/api/v1/auth/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: auth.refresh_token }),
+        signal: AbortSignal.timeout(10000)
+      });
+      if (!res.ok) return false;
+      saveAuth(await res.json());
+      return true;
+    } catch { return false; }
+  }
+
+  async function authedFetch(url, options = {}) {
+    options.headers = options.headers || {};
+    if (auth) options.headers['Authorization'] = `Bearer ${auth.access_token}`;
+    let res = await fetch(url, options);
+    if (res.status === 401 && auth) {
+      const ok = await tryRefresh();
+      if (!ok) { clearAuthAndRedirect(); throw new Error('session expirée'); }
+      options.headers['Authorization'] = `Bearer ${auth.access_token}`;
+      res = await fetch(url, options);
+    }
+    return res;
+  }
+
+  function esc(s) {
+    return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function fmtDate(iso) {
+    try {
+      return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch { return iso; }
+  }
+
+  function fmtVal(v) {
+    if (typeof v === 'number') return v.toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+    return esc(v);
+  }
+
+  async function checkConn() {
+    const dot = document.getElementById('connDot');
+    try {
+      const r = await fetch(apiUrl() + '/api/v1/health', { signal: AbortSignal.timeout(3000) });
+      dot.className = r.ok ? 'dot ok' : 'dot err';
+    } catch { dot.className = 'dot err'; }
+  }
+
+  function renderUserTag() {
+    const tag = document.getElementById('userTag');
+    if (auth) { tag.textContent = auth.name || auth.email || 'connecté'; }
+    else { tag.textContent = 'mode invité'; document.getElementById('logoutBtn').style.display = 'none'; }
+  }
+
+  function showGuestPrompt() {
+    document.getElementById('content').innerHTML = `
+      <div class="state-box">
+        <p>Connectez-vous pour voir l'historique de vos KPIs calculés.<br>Chaque snapshot reste lié au compte qui l'a généré.</p>
+        <a href="login.html">se connecter →</a>
+      </div>`;
+  }
+
+  function showError(msg) {
+    document.getElementById('content').innerHTML = `<div class="error-box">${esc(msg)}</div>`;
+  }
+
+  function kpiCard(sessionId, items) {
+    const latest = items.reduce((a, b) => (new Date(a.calculated_at) > new Date(b.calculated_at) ? a : b));
+    const tiles = items.map(k => `
+      <div class="kpi-tile">
+        <div class="kpi-tile-name">${esc(k.kpi_name)}</div>
+        <div class="kpi-tile-value">${fmtVal(k.value)}${k.unit ? `<span class="unit">${esc(k.unit)}</span>` : ''}</div>
+        ${k.explanation ? `<div class="kpi-tile-explain">${esc(k.explanation)}</div>` : ''}
+      </div>`).join('');
+
+    return `
+      <div class="kpi-card">
+        <div class="kpi-card-head">
+          <div class="kpi-card-date">${fmtDate(latest.calculated_at)}</div>
+          <div class="kpi-card-link"><a href="frontend.html?session=${encodeURIComponent(sessionId)}">reprendre cette session →</a></div>
+        </div>
+        <div class="kpi-grid">${tiles}</div>
+      </div>`;
+  }
+
+  async function loadKpis() {
+    if (!auth) { showGuestPrompt(); return; }
+    try {
+      const res = await authedFetch(apiUrl() + '/api/v1/auth/me/kpis', { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const kpis = await res.json();
+      if (!kpis.length) {
+        document.getElementById('content').innerHTML = `
+          <div class="state-box">
+            <p>Aucun KPI calculé pour le moment.<br>Terminez l'analyse de votre projet dans le chat pour en générer.</p>
+            <a href="frontend.html">aller au chat →</a>
+          </div>`;
+        return;
+      }
+
+      // Group by session, most recently-calculated session first.
+      const groups = {};
+      for (const k of kpis) {
+        (groups[k.session_id] = groups[k.session_id] || []).push(k);
+      }
+      const sessionIds = Object.keys(groups).sort((a, b) => {
+        const latestOf = arr => Math.max(...arr.map(k => new Date(k.calculated_at).getTime()));
+        return latestOf(groups[b]) - latestOf(groups[a]);
+      });
+
+      document.getElementById('content').innerHTML =
+        `<div class="kpi-group">${sessionIds.map(id => kpiCard(id, groups[id])).join('')}</div>`;
+    } catch (err) {
+      showError(`Impossible de charger vos KPIs sur ${apiUrl()}. Vérifiez que l'API tourne et que l'URL est correcte.`);
+    }
+  }
+
+  document.getElementById('apiUrl').value = localStorage.getItem(API_URL_KEY) || 'http://localhost:8000';
+  document.getElementById('apiUrl').addEventListener('change', () => {
+    localStorage.setItem(API_URL_KEY, apiUrl());
+    checkConn();
+    loadKpis();
+  });
+
+  renderUserTag();
+  checkConn();
+  loadKpis();
+</script>
+</body>
+</html>

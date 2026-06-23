@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mes Plans — Finance Agent</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0e0e0e; --surface: #161616; --border: #2a2a2a; --border-light: #333;
+    --text: #e8e8e8; --text-muted: #666; --text-dim: #444;
+    --accent: #d4ff4e; --accent-dim: rgba(212,255,78,0.08); --accent-border: rgba(212,255,78,0.25);
+    --error: #ef9a9a; --error-dim: rgba(239,154,154,0.08); --error-border: rgba(239,154,154,0.3);
+    --mono: 'IBM Plex Mono', monospace; --sans: 'IBM Plex Sans', sans-serif; --radius: 4px;
+  }
+  html, body { min-height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; line-height: 1.6; }
+  .wrap { max-width: 760px; margin: 0 auto; min-height: 100vh; display: flex; flex-direction: column; }
+  header { padding: 20px 24px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .logo { display: flex; align-items: center; gap: 10px; }
+  .logo-mark { width: 28px; height: 28px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+  .logo-mark svg { width: 14px; height: 14px; }
+  .logo-text { font-family: var(--mono); font-size: 13px; font-weight: 500; }
+  .logo-text span { color: var(--accent); }
+  .nav-right { display: flex; align-items: center; gap: 10px; }
+  .nav-link, .reset-btn { font-family: var(--mono); font-size: 11px; color: var(--text-dim); text-decoration: none; background: none; border: none; cursor: pointer; padding: 2px 0; transition: color 0.15s; }
+  .nav-link:hover, .reset-btn:hover { color: var(--text-muted); }
+  .user-tag { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
+  main { flex: 1; padding: 28px 24px 60px; }
+  .page-title { font-family: var(--mono); font-size: 19px; font-weight: 500; margin-bottom: 4px; }
+  .page-title span { color: var(--accent); }
+  .page-subtitle { color: var(--text-muted); font-size: 13px; margin-bottom: 28px; }
+  .state-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; text-align: center; }
+  .state-box p { color: var(--text-muted); font-size: 13px; margin-bottom: 16px; line-height: 1.7; }
+  .state-box a { color: var(--accent); text-decoration: none; font-family: var(--mono); font-size: 12.5px; }
+  .state-box a:hover { text-decoration: underline; }
+  .error-box { background: var(--error-dim); border: 1px solid var(--error-border); color: var(--error); font-size: 12px; padding: 10px 12px; border-radius: var(--radius); margin-bottom: 20px; line-height: 1.5; }
+  .spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto 12px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .plan-list { display: flex; flex-direction: column; gap: 14px; }
+  .plan-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 22px; animation: fadeIn 0.2s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .plan-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+  .plan-card-title { font-family: var(--mono); font-size: 14px; font-weight: 500; color: var(--text); }
+  .plan-card-date { font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); white-space: nowrap; }
+  .plan-summary { color: var(--text-muted); font-size: 13px; line-height: 1.65; margin-bottom: 14px; }
+  .plan-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+  .chip { font-family: var(--mono); font-size: 11px; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 4px 9px; display: flex; gap: 5px; }
+  .chip .chip-key { color: var(--text-dim); }
+  .chip .chip-val { color: var(--accent); }
+  .plan-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn { font-family: var(--mono); font-size: 11.5px; padding: 8px 14px; border-radius: var(--radius); cursor: pointer; transition: opacity 0.15s, transform 0.1s; border: 1px solid var(--border); background: var(--bg); color: var(--text-muted); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  .btn:hover { opacity: 0.85; }
+  .btn:active { transform: scale(0.97); }
+  .btn.primary { background: var(--accent-dim); border-color: var(--accent-border); color: var(--accent); }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+  .btn svg { width: 12px; height: 12px; }
+  details.advanced { margin-top: 32px; border-top: 1px solid var(--border); padding-top: 14px; }
+  details.advanced summary { font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); cursor: pointer; list-style: none; }
+  details.advanced summary::-webkit-details-marker { display: none; }
+  .api-row { margin-top: 12px; display: flex; align-items: center; gap: 8px; }
+  .api-row label { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+  .api-row input { font-family: var(--mono); font-size: 11px; background: var(--surface); border: 1px solid var(--border); color: var(--text-muted); padding: 4px 8px; border-radius: 3px; width: 220px; outline: none; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
+  .dot.ok { background: var(--accent); }
+  .dot.err { background: var(--error); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">
+      <div class="logo-mark">
+        <svg viewBox="0 0 14 14" fill="none"><path d="M7 1L13 4V10L7 13L1 10V4L7 1Z" stroke="#0e0e0e" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="logo-text">finance<span>_agent</span>.ma</div>
+    </div>
+    <div class="nav-right">
+      <span class="user-tag" id="userTag"></span>
+      <a class="nav-link" href="frontend.html">← chat</a>
+      <a class="nav-link" href="kpis.html">mes kpis</a>
+      <button class="reset-btn" id="logoutBtn" onclick="logout()" style="display:none">déconnexion</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="page-title">Mes <span>plans financiers</span></div>
+    <div class="page-subtitle">Tous les plans générés au fil de vos conversations, les plus récents en premier.</div>
+
+    <div id="content">
+      <div class="state-box"><div class="spinner"></div><p>chargement...</p></div>
+    </div>
+
+    <details class="advanced">
+      <summary>paramètres avancés</summary>
+      <div class="api-row">
+        <label>API URL</label>
+        <input type="text" id="apiUrl" />
+        <div class="dot" id="connDot"></div>
+      </div>
+    </details>
+  </main>
+
+</div>
+<script>
+  const AUTH_KEY = 'fa_auth';
+  const API_URL_KEY = 'fa_api_url';
+
+  function getAuth() {
+    try { return JSON.parse(localStorage.getItem(AUTH_KEY) || 'null'); }
+    catch { return null; }
+  }
+  let auth = getAuth();
+
+  function apiUrl() {
+    return (document.getElementById('apiUrl').value || 'http://localhost:8000').replace(/\/$/, '');
+  }
+
+  function saveAuth(data) {
+    auth = {
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+      client_id: data.client_id,
+      email: data.email,
+      name: data.name
+    };
+    localStorage.setItem(AUTH_KEY, JSON.stringify(auth));
+  }
+
+  function clearAuthAndRedirect() {
+    localStorage.removeItem(AUTH_KEY);
+    sessionStorage.removeItem('fa_guest');
+    window.location.href = 'login.html';
+  }
+
+  function logout() {
+    if (auth && auth.refresh_token) {
+      fetch(apiUrl() + '/api/v1/auth/logout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: auth.refresh_token }),
+        keepalive: true
+      }).catch(() => {});
+    }
+    clearAuthAndRedirect();
+  }
+
+  async function tryRefresh() {
+    if (!auth || !auth.refresh_token) return false;
+    try {
+      const res = await fetch(apiUrl() + '/api/v1/auth/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: auth.refresh_token }),
+        signal: AbortSignal.timeout(10000)
+      });
+      if (!res.ok) return false;
+      saveAuth(await res.json());
+      return true;
+    } catch { return false; }
+  }
+
+  async function authedFetch(url, options = {}) {
+    options.headers = options.headers || {};
+    if (auth) options.headers['Authorization'] = `Bearer ${auth.access_token}`;
+    let res = await fetch(url, options);
+    if (res.status === 401 && auth) {
+      const ok = await tryRefresh();
+      if (!ok) { clearAuthAndRedirect(); throw new Error('session expirée'); }
+      options.headers['Authorization'] = `Bearer ${auth.access_token}`;
+      res = await fetch(url, options);
+    }
+    return res;
+  }
+
+  function esc(s) {
+    return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function fmtDate(iso) {
+    try {
+      return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch { return iso; }
+  }
+
+  function fmtVal(v) {
+    if (typeof v === 'number') return v.toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+    return esc(v);
+  }
+
+  function fmtKey(k) {
+    return k.replace(/_/g, ' ');
+  }
+
+  async function checkConn() {
+    const dot = document.getElementById('connDot');
+    try {
+      const r = await fetch(apiUrl() + '/api/v1/health', { signal: AbortSignal.timeout(3000) });
+      dot.className = r.ok ? 'dot ok' : 'dot err';
+    } catch { dot.className = 'dot err'; }
+  }
+
+  function renderUserTag() {
+    const tag = document.getElementById('userTag');
+    if (auth) { tag.textContent = auth.name || auth.email || 'connecté'; }
+    else { tag.textContent = 'mode invité'; document.getElementById('logoutBtn').style.display = 'none'; }
+  }
+
+  function showGuestPrompt() {
+    document.getElementById('content').innerHTML = `
+      <div class="state-box">
+        <p>Connectez-vous pour voir l'historique de vos plans financiers générés.<br>Chaque plan reste lié au compte qui l'a créé.</p>
+        <a href="login.html">se connecter →</a>
+      </div>`;
+  }
+
+  function showError(msg) {
+    document.getElementById('content').innerHTML = `<div class="error-box">${esc(msg)}</div>`;
+  }
+
+  function planCard(plan) {
+    const fh = plan.financial_highlights || {};
+    const title = fh.entity_name || fh.nom_entreprise || 'Plan financier';
+    const chips = Object.entries(fh)
+      .filter(([k]) => k !== 'entity_name' && k !== 'nom_entreprise')
+      .slice(0, 6)
+      .map(([k, v]) => `<div class="chip"><span class="chip-key">${esc(fmtKey(k))}</span><span class="chip-val">${fmtVal(v)}</span></div>`)
+      .join('');
+    const summary = plan.executive_summary
+      ? esc(plan.executive_summary.length > 280 ? plan.executive_summary.slice(0, 280) + '…' : plan.executive_summary)
+      : '<em style="color:var(--text-dim)">pas de résumé disponible</em>';
+
+    return `
+      <div class="plan-card">
+        <div class="plan-card-head">
+          <div class="plan-card-title">${esc(title)}</div>
+          <div class="plan-card-date">${fmtDate(plan.created_at)}</div>
+        </div>
+        <div class="plan-summary">${summary}</div>
+        ${chips ? `<div class="plan-chips">${chips}</div>` : ''}
+        <div class="plan-actions">
+          <button class="btn primary" onclick="downloadPdf('${plan.session_id}', this)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg>
+            télécharger le PDF
+          </button>
+          <a class="btn" href="frontend.html?session=${encodeURIComponent(plan.session_id)}">reprendre cette session →</a>
+        </div>
+      </div>`;
+  }
+
+  async function downloadPdf(sessionId, btn) {
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.textContent = 'génération...';
+    try {
+      const res = await authedFetch(apiUrl() + '/api/v1/chat/' + sessionId + '/plan/pdf', { signal: AbortSignal.timeout(20000) });
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`;
+        try { detail = (await res.json()).detail || detail; } catch {}
+        throw new Error(detail);
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition') || '';
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      const filename = match ? match[1] : 'business_plan.pdf';
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Impossible de générer le PDF : ' + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = original;
+    }
+  }
+
+  async function loadPlans() {
+    if (!auth) { showGuestPrompt(); return; }
+    try {
+      const res = await authedFetch(apiUrl() + '/api/v1/auth/me/plans', { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const plans = await res.json();
+      if (!plans.length) {
+        document.getElementById('content').innerHTML = `
+          <div class="state-box">
+            <p>Aucun plan financier généré pour le moment.<br>Terminez une collecte de données dans le chat pour en créer un.</p>
+            <a href="frontend.html">aller au chat →</a>
+          </div>`;
+        return;
+      }
+      document.getElementById('content').innerHTML = `<div class="plan-list">${plans.map(planCard).join('')}</div>`;
+    } catch (err) {
+      showError(`Impossible de charger vos plans sur ${apiUrl()}. Vérifiez que l'API tourne et que l'URL est correcte.`);
+    }
+  }
+
+  document.getElementById('apiUrl').value = localStorage.getItem(API_URL_KEY) || 'http://localhost:8000';
+  document.getElementById('apiUrl').addEventListener('change', () => {
+    localStorage.setItem(API_URL_KEY, apiUrl());
+    checkConn();
+    loadPlans();
+  });
+
+  renderUserTag();
+  checkConn();
+  loadPlans();
+</script>
+</body>
+</html>

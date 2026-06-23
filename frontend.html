@@ -82,6 +82,28 @@
   .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
   .dot.ok { background: var(--accent); }
   .dot.err { background: #ef9a9a; }
+  .history-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); opacity: 0; pointer-events: none; transition: opacity 0.2s; z-index: 40; }
+  .history-backdrop.open { opacity: 1; pointer-events: auto; }
+  .history-panel { position: fixed; top: 0; left: 0; height: 100vh; width: 280px; background: var(--surface); border-right: 1px solid var(--border); transform: translateX(-100%); transition: transform 0.25s ease; z-index: 50; display: flex; flex-direction: column; }
+  .history-panel.open { transform: translateX(0); }
+  .history-header { padding: 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .history-header h2 { font-family: var(--mono); font-size: 13px; font-weight: 500; }
+  .history-close { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 6px; }
+  .history-close:hover { color: var(--text-muted); }
+  .history-new { margin: 12px 16px 4px; font-family: var(--mono); font-size: 12px; color: var(--accent); background: var(--accent-dim); border: 1px solid var(--accent-border); border-radius: var(--radius); padding: 9px 10px; cursor: pointer; text-align: left; transition: opacity 0.15s; }
+  .history-new:hover { opacity: 0.85; }
+  .history-list { flex: 1; overflow-y: auto; padding: 8px 8px 16px; }
+  .history-empty { font-family: var(--mono); font-size: 11px; color: var(--text-dim); padding: 16px 8px; text-align: center; line-height: 1.6; }
+  .history-item { position: relative; padding: 10px 30px 10px 12px; border-radius: var(--radius); cursor: pointer; margin-bottom: 4px; transition: background 0.15s; border: 1px solid transparent; }
+  .history-item:hover { background: var(--bg); }
+  .history-item.active { background: var(--accent-dim); border-color: var(--accent-border); }
+  .history-item-title { font-size: 12.5px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .history-item-meta { font-family: var(--mono); font-size: 10px; color: var(--text-dim); margin-top: 3px; }
+  .history-item-del { position: absolute; top: 6px; right: 4px; background: none; border: none; color: var(--text-dim); font-size: 15px; cursor: pointer; line-height: 1; padding: 4px 6px; }
+  .history-item-del:hover { color: #ef9a9a; }
+  .history-nav { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+  .history-nav a { font-family: var(--mono); font-size: 11px; color: var(--text-muted); text-decoration: none; }
+  .history-nav a:hover { color: var(--accent); }
 </style>
 </head>
 <body>
@@ -96,6 +118,7 @@
     </div>
     <div style="display:flex;align-items:center;gap:10px">
       <span class="user-tag" id="userTag"></span>
+      <button class="reset-btn" onclick="toggleHistory()">historique</button>
       <button class="reset-btn" onclick="resetSession()">nouvelle session</button>
       <button class="reset-btn" id="logoutBtn" onclick="logout()" style="display:none">déconnexion</button>
       <div class="phase-badge" id="phaseBadge">welcome</div>
@@ -133,6 +156,20 @@
     <button class="send" id="sendBtn" onclick="sendMessage()">envoyer →</button>
   </div>
 
+</div>
+
+<div class="history-backdrop" id="historyBackdrop" onclick="closeHistory()"></div>
+<div class="history-panel" id="historyPanel">
+  <div class="history-header">
+    <h2>historique</h2>
+    <button class="history-close" onclick="closeHistory()">✕</button>
+  </div>
+  <button class="history-new" onclick="resetSession()">+ nouvelle conversation</button>
+  <div class="history-list" id="historyList"></div>
+  <div class="history-nav">
+    <a href="plans.html">→ mes plans</a>
+    <a href="kpis.html">→ mes kpis</a>
+  </div>
 </div>
 <script>
   const AUTH_KEY = 'fa_auth';
@@ -232,6 +269,75 @@
   }
 
   let sessionId = null, isLoading = false;
+  let currentMessages = [];
+
+  function historyStoreKey() {
+    return 'fa_history_' + (auth ? auth.client_id : 'guest');
+  }
+  function loadHistoryStore() {
+    try { return JSON.parse(localStorage.getItem(historyStoreKey()) || '{}'); }
+    catch { return {}; }
+  }
+  function saveHistoryStore(store) {
+    localStorage.setItem(historyStoreKey(), JSON.stringify(store));
+  }
+  function deriveTitle() {
+    const firstUser = currentMessages.find(m => m.role === 'user');
+    if (!firstUser) return 'Nouvelle conversation';
+    return firstUser.text.length > 42 ? firstUser.text.slice(0, 42) + '…' : firstUser.text;
+  }
+  function commitHistory(businessState, phase) {
+    if (!sessionId) return;
+    const store = loadHistoryStore();
+    const existing = store[sessionId] || {};
+    store[sessionId] = {
+      title: (businessState && businessState.entity_name) || existing.title || deriveTitle(),
+      updatedAt: Date.now(),
+      businessState: businessState || existing.businessState || null,
+      phase: phase || existing.phase || null,
+      messages: currentMessages
+    };
+    saveHistoryStore(store);
+    renderHistoryList();
+  }
+  function renderHistoryList() {
+    const store = loadHistoryStore();
+    const list = document.getElementById('historyList');
+    const ids = Object.keys(store).sort((a, b) => (store[b].updatedAt || 0) - (store[a].updatedAt || 0));
+    if (!ids.length) {
+      list.innerHTML = '<div class="history-empty">aucune conversation enregistrée pour le moment</div>';
+      return;
+    }
+    list.innerHTML = ids.map(id => {
+      const c = store[id];
+      const active = id === sessionId ? ' active' : '';
+      const date = c.updatedAt ? new Date(c.updatedAt).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }) : '';
+      return `<div class="history-item${active}" onclick="openConversation('${id}')">
+        <div class="history-item-title">${esc(c.title || 'Nouvelle conversation')}</div>
+        <div class="history-item-meta">${date}</div>
+        <button class="history-item-del" onclick="event.stopPropagation(); deleteConversation('${id}')" title="Supprimer">×</button>
+      </div>`;
+    }).join('');
+  }
+  function openConversation(id) {
+    if (id === sessionId) { closeHistory(); return; }
+    window.location.href = 'frontend.html?session=' + encodeURIComponent(id);
+  }
+  function deleteConversation(id) {
+    const store = loadHistoryStore();
+    delete store[id];
+    saveHistoryStore(store);
+    renderHistoryList();
+  }
+  function toggleHistory() {
+    document.getElementById('historyPanel').classList.toggle('open');
+    document.getElementById('historyBackdrop').classList.toggle('open');
+    renderHistoryList();
+  }
+  function closeHistory() {
+    document.getElementById('historyPanel').classList.remove('open');
+    document.getElementById('historyBackdrop').classList.remove('open');
+  }
 
   const PHASE_LABELS = {
     welcome:'welcome', collecting:'collecte', awaiting_plan_confirm:'confirmation',
@@ -252,6 +358,31 @@
 
   document.getElementById('apiUrl').value = localStorage.getItem(API_URL_KEY) || 'http://localhost:8000';
   renderUserTag();
+
+  // Resume a specific conversation when arriving via frontend.html?session=<id>
+  // (used by the history drawer and by "reprendre cette session" links from
+  // plans.html / kpis.html). Replays cached bubbles if we have them locally;
+  // otherwise the session still continues correctly server-side, we just
+  // can't redraw bubbles we never received.
+  (function resumeFromQuery() {
+    const params = new URLSearchParams(location.search);
+    const resumeId = params.get('session');
+    if (!resumeId) return;
+    sessionId = resumeId;
+    const store = loadHistoryStore();
+    const cached = store[resumeId];
+    document.getElementById('welcome').style.display = 'none';
+    if (cached && cached.messages && cached.messages.length) {
+      cached.messages.forEach(m => addMsg(m.role, m.text, m.mode, m.canDownloadPdf, true));
+      currentMessages = cached.messages.slice();
+      if (cached.phase) setPhase(cached.phase);
+      if (cached.businessState) updateState(cached.businessState);
+    } else {
+      addMsg('agent', 'Session reprise — continuez la conversation, l\'agent se souvient du contexte précédent.', null, false, true);
+    }
+    history.replaceState({}, '', 'frontend.html');
+  })();
+  renderHistoryList();
 
   async function checkConn() {
     const dot = document.getElementById('connDot');
@@ -303,7 +434,7 @@
     });
   }
 
-  function addMsg(role, text, mode, canDownloadPdf) {
+  function addMsg(role, text, mode, canDownloadPdf, skipRecord) {
   const w = document.getElementById('welcome');
   if (w) w.style.display = 'none';
 
@@ -327,6 +458,8 @@
   `;
 
   msgs.appendChild(div);
+
+  if (!skipRecord) currentMessages.push({ role, text, mode: mode || null, canDownloadPdf: !!canDownloadPdf });
 
   setTimeout(() => {
     div.scrollIntoView({ behavior: "auto", block: "end" });
@@ -368,6 +501,7 @@
       if (data.business_state) updateState(data.business_state);
       addMsg('agent', data.message || '(pas de réponse)', data.agent_mode, !!data.metrics_calculated);
       document.getElementById('connDot').className = 'dot ok';
+      commitHistory(data.business_state, data.current_phase || data.metadata?.phase);
     } catch(err) {
       addMsg('agent', `Erreur: ${err.message}\n\nVérifiez que le serveur tourne sur ${apiUrl()}`, 'error');
       document.getElementById('connDot').className = 'dot err';
@@ -409,8 +543,7 @@
   }
 
   function resetSession() {
-    sessionId = null;
-    location.reload();
+    window.location.href = 'frontend.html';
   }
 </script>
 </body>
