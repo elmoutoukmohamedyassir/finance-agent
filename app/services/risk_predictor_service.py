@@ -254,7 +254,11 @@ def _extract_top_factors(
     # not the scaler+classifier Pipeline that LogisticRegression uses)
     estimator = model.named_steps["clf"] if isinstance(model, Pipeline) else model
 
-    explainer   = shap.TreeExplainer(estimator)
+    if hasattr(estimator, "feature_importances_"):
+        explainer = shap.TreeExplainer(estimator)
+    else:
+        explainer = shap.LinearExplainer(estimator, X)
+
     shap_values = explainer.shap_values(X)
 
     # SHAP's return shape for multiclass varies by version:
