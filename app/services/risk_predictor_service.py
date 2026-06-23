@@ -255,10 +255,26 @@ def _extract_top_factors(
     estimator = model.named_steps["clf"] if isinstance(model, Pipeline) else model
 
     explainer   = shap.TreeExplainer(estimator)
-    shap_values = explainer.shap_values(X)   # list of arrays, one per class
+    shap_values = explainer.shap_values(X)
 
-    # Sum |SHAP| across all classes → single importance score per feature
-    importances = np.sum([np.abs(sv[0]) for sv in shap_values], axis=0)
+    # SHAP's return shape for multiclass varies by version:
+    #   - older shap: list of (n_samples, n_features) arrays, one per class
+    #   - newer shap (>=0.45ish): single (n_samples, n_features, n_classes) ndarray
+    # Handle both so importance extraction doesn't silently mis-rank features
+    # when the installed shap version differs from whatever wrote this code.
+    if isinstance(shap_values, list):
+        # Sum |SHAP| across all classes → single importance score per feature
+        importances = np.sum([np.abs(sv[0]) for sv in shap_values], axis=0)
+    else:
+        arr = np.asarray(shap_values)
+        if arr.ndim == 3:
+            # (n_samples, n_features, n_classes) — sum abs over classes, take row 0
+            importances = np.abs(arr[0]).sum(axis=-1)
+        elif arr.ndim == 2:
+            # (n_samples, n_features) — single-output case
+            importances = np.abs(arr[0])
+        else:
+            raise ValueError(f"Unexpected SHAP values shape: {arr.shape}")
 
     total = float(importances.sum()) or 1.0
     ranked = sorted(

@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     # CORS
     allowed_origins: str = Field(default="*")
 
+    # ML — Risk classifier
+    risk_model_path: str = Field(default="data/ml/risk_model.joblib")
+
     model_config = {
         "env_file": str(_ENV_FILE),
         "env_file_encoding": "utf-8",
