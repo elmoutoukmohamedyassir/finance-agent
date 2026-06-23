@@ -36,3 +36,9 @@ sentence-transformers==3.0.1
 
 # HTTP (used by Ollama embedder)
 requests==2.32.3
+
+# ML 
+scikit-learn
+pandas
+joblib
+shap
