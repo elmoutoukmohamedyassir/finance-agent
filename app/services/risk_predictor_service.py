@@ -14,7 +14,7 @@ uses (the Phase 2 collection output), and returns a RiskPrediction with:
   • label          — "at_risk" | "viable"
   • confidence     — probability of the predicted label (0.0 → 1.0)
   • top_factors    — the 5 features that most influenced this specific
-                     prediction, ordered by importance, with human-readable
+                     prediction, ordered by SHAP importance, with human-readable
                      French labels and the actual values from the input
   • model_info     — model type + test metrics from training time
 
@@ -38,6 +38,11 @@ DESIGN NOTES
   uses. A partially-filled state still gets a prediction (just less
   accurate), which is intentional: the API can be called mid-conversation
   to give early risk signals.
+
+• SHAP TreeExplainer is used for per-prediction importance. It receives X
+  (the fully encoded, ordered matrix the model saw) — NOT the pre-encoding
+  feature_row. Display values are recovered from business_state for
+  categoricals and from X for numerics.
 """
 
 import logging
@@ -46,7 +51,9 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import joblib
+import numpy as np
 import pandas as pd
+from sklearn.pipeline import Pipeline
 
 from app.core.config import get_settings
 
@@ -120,11 +127,11 @@ _FEATURE_LABELS_FR = {
 @dataclass
 class RiskFactor:
     """One contributing factor in a risk prediction."""
-    feature:       str    # internal column name
-    label_fr:      str    # human-readable French label
-    value:         object # the actual value from this business_state
-    importance:    float  # model's feature importance weight (0→1)
-    importance_pct: float # same, as a percentage
+    feature:        str    # internal column name
+    label_fr:       str    # human-readable French label
+    value:          object # the actual value from this business_state
+    importance:     float  # SHAP absolute importance (0→1 normalised)
+    importance_pct: float  # same, as a percentage
 
 
 @dataclass
@@ -154,7 +161,6 @@ def _load_artifact() -> Optional[dict]:
         return _artifact
 
     settings = get_settings()
-    # Resolve relative paths against the project root (same pattern as config.py)
     model_path = settings.risk_model_path
     if not os.path.isabs(model_path):
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(
@@ -218,56 +224,62 @@ def _business_state_to_feature_row(business_state: dict) -> pd.DataFrame:
         except (TypeError, ValueError):
             row[col] = _NUMERIC_DEFAULTS[col]
 
-    # Feature order must match training — use the artifact's own list as truth
     return pd.DataFrame([row])
 
 
 def _extract_top_factors(
     artifact: dict,
-    feature_row: pd.DataFrame,
-    business_state: dict,
+    X: pd.DataFrame,        # fully encoded + ordered — exactly what model.predict() saw
+    business_state: dict,   # raw values, used only for readable display of categoricals
     top_n: int = 5,
 ) -> list[RiskFactor]:
     """
-    Pull the top N features by model importance and pair each with the
-    actual value from this business_state, so the API response explains
-    *why* this specific business was flagged.
+    Per-prediction feature importance via SHAP TreeExplainer.
 
-    Works for both RandomForest (feature_importances_) and Logistic
-    Regression wrapped in a Pipeline (coef_).
+    X must be the encoded, feature-ordered DataFrame passed to model.predict()
+    — NOT the pre-encoding feature_row. Passing raw (pre-encoding) data to
+    SHAP causes it to assign all weight to the first few categorical columns
+    because their encoded integer values have the highest variance.
+
+    We sum absolute SHAP values across all classes so importance is
+    label-agnostic (same ranking whether the prediction is at_risk or viable).
     """
+    import shap
+
     model    = artifact["model"]
     metadata = artifact.get("metadata", {})
     features = metadata.get("feature_names", CATEGORICAL_COLS + NUMERIC_COLS)
 
-    # Get importances — unwrap Pipeline if needed
-    estimator = model["clf"] if hasattr(model, "__getitem__") and "clf" in model.named_steps else model
-    if hasattr(estimator, "feature_importances_"):
-        importances = estimator.feature_importances_
-    elif hasattr(estimator, "coef_"):
-        importances = abs(estimator.coef_[0])
-    else:
-        return []
+    # Unwrap Pipeline → bare estimator (SHAP needs the classifier directly,
+    # not the scaler+classifier Pipeline that LogisticRegression uses)
+    estimator = model.named_steps["clf"] if isinstance(model, Pipeline) else model
 
-    total = sum(importances) or 1.0
+    explainer   = shap.TreeExplainer(estimator)
+    shap_values = explainer.shap_values(X)   # list of arrays, one per class
+
+    # Sum |SHAP| across all classes → single importance score per feature
+    importances = np.sum([np.abs(sv[0]) for sv in shap_values], axis=0)
+
+    total = float(importances.sum()) or 1.0
     ranked = sorted(
         zip(features, importances),
-        key=lambda x: x[1],
+        key=lambda pair: pair[1],
         reverse=True,
     )[:top_n]
 
     factors = []
     for feat_name, importance in ranked:
-        # Recover the original (pre-encoding) value for display
-        raw_value = feature_row[feat_name].iloc[0] if feat_name in feature_row.columns else None
-        # For categoricals the business_state holds the readable string
+        # Categoricals: show the original string (e.g. "B2B") not the integer
+        # Numerics: show the value directly from X
         if feat_name in CATEGORICAL_COLS:
-            raw_value = business_state.get(feat_name, raw_value)
+            display_value = business_state.get(feat_name, X[feat_name].iloc[0])
+        else:
+            display_value = X[feat_name].iloc[0]
 
         factors.append(RiskFactor(
             feature=feat_name,
             label_fr=_FEATURE_LABELS_FR.get(feat_name, feat_name),
-            value=raw_value,
+            value=display_value,
             importance=round(float(importance), 4),
             importance_pct=round(float(importance) / total * 100, 1),
         ))
@@ -310,10 +322,10 @@ def predict_risk(business_state: dict) -> RiskPrediction:
         encoder  = artifact["encoder"]
         metadata = artifact.get("metadata", {})
 
-        # 1. Build feature row
+        # 1. Build feature row (pre-encoding)
         feature_row = _business_state_to_feature_row(business_state)
 
-        # 2. Encode categoricals (transform only — encoder was fitted at training time)
+        # 2. Encode categoricals
         feature_row[CATEGORICAL_COLS] = encoder.transform(feature_row[CATEGORICAL_COLS])
 
         # 3. Reorder to match training feature order
@@ -321,16 +333,16 @@ def predict_risk(business_state: dict) -> RiskPrediction:
         X = feature_row[ordered_features]
 
         # 4. Predict
-        label      = model.predict(X)[0]                  # "at_risk" | "viable"
-        proba      = model.predict_proba(X)[0]             # [p_at_risk, p_viable]
+        label      = model.predict(X)[0]
+        proba      = model.predict_proba(X)[0]
         classes    = metadata.get("label_classes", ["at_risk", "viable"])
         label_idx  = classes.index(label)
         confidence = round(float(proba[label_idx]), 4)
 
-        # 5. Top contributing features
-        top_factors = _extract_top_factors(artifact, feature_row, business_state)
+        # 5. Per-prediction SHAP importance — pass X (encoded), not feature_row
+        top_factors = _extract_top_factors(artifact, X, business_state)
 
-        # 6. Model info for the response
+        # 6. Model info
         model_info = {
             "model_type":   metadata.get("model_type"),
             "trained_at":   metadata.get("trained_at"),
